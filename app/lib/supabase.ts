@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -49,6 +50,7 @@ export type Database = {
           openrouter_api_key: string | null;
           created_at: string;
           updated_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -61,6 +63,7 @@ export type Database = {
           openrouter_api_key?: string | null;
           created_at?: string;
           updated_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -73,6 +76,7 @@ export type Database = {
           openrouter_api_key?: string | null;
           created_at?: string;
           updated_at?: string;
+          user_id?: string;
         };
       };
       shipping_settings: {
@@ -81,18 +85,21 @@ export type Database = {
           base_cost: number;
           label_cost: number;
           updated_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
           base_cost?: number;
           label_cost?: number;
           updated_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
           base_cost?: number;
           label_cost?: number;
           updated_at?: string;
+          user_id?: string;
         };
       };
       ai_recommendations: {
@@ -111,6 +118,7 @@ export type Database = {
           status: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at: string;
           implemented_at: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -127,6 +135,7 @@ export type Database = {
           status?: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at?: string;
           implemented_at?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -143,6 +152,7 @@ export type Database = {
           status?: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at?: string;
           implemented_at?: string | null;
+          user_id?: string;
         };
       };
       canceled_orders: {
@@ -156,6 +166,7 @@ export type Database = {
           total_loss: number;
           notes: string | null;
           created_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -167,6 +178,7 @@ export type Database = {
           total_loss?: number;
           notes?: string | null;
           created_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -178,6 +190,7 @@ export type Database = {
           total_loss?: number;
           notes?: string | null;
           created_at?: string;
+          user_id?: string;
         };
       };
       products: {
@@ -202,6 +215,7 @@ export type Database = {
           stock_value: number | null;
           status: string;
           remarks: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -224,6 +238,7 @@ export type Database = {
           stock_value?: number | null;
           status?: string;
           remarks?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -246,6 +261,7 @@ export type Database = {
           stock_value?: number | null;
           status?: string;
           remarks?: string | null;
+          user_id?: string;
         };
       };
       sales: {
@@ -276,6 +292,7 @@ export type Database = {
           ship_method: string | null;
           carrier_method: string | null;
           item_condition: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -304,6 +321,7 @@ export type Database = {
           ship_method?: string | null;
           carrier_method?: string | null;
           item_condition?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -332,6 +350,7 @@ export type Database = {
           ship_method?: string | null;
           carrier_method?: string | null;
           item_condition?: string | null;
+          user_id?: string;
         };
       };
       orders: {
@@ -357,6 +376,9 @@ export type Database = {
           created_at: string;
           updated_at: string;
           status: string;
+          user_id: string;
+          upload_batch_id: string | null;
+          app_settings_id: string | null;
         };
         Insert: {
           order_id?: string;
@@ -380,6 +402,9 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           status?: string;
+          user_id: string;
+          upload_batch_id?: string | null;
+          app_settings_id?: string | null;
         };
         Update: {
           order_id?: string;
@@ -403,6 +428,77 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           status?: string;
+          user_id?: string;
+          upload_batch_id?: string | null;
+          app_settings_id?: string | null;
+        };
+      };
+      users: {
+        Row: {
+          id: string;
+          auth_id: string;
+          email: string;
+          first_name: string | null;
+          last_name: string | null;
+          company_name: string | null;
+          phone: string | null;
+          address_line1: string | null;
+          address_line2: string | null;
+          city: string | null;
+          state: string | null;
+          postal_code: string | null;
+          country: string | null;
+          profile_image_url: string | null;
+          walmart_seller_id: string | null;
+          amazon_seller_id: string | null;
+          tax_id: string | null;
+          business_type: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          auth_id: string;
+          email: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          state?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          profile_image_url?: string | null;
+          walmart_seller_id?: string | null;
+          amazon_seller_id?: string | null;
+          tax_id?: string | null;
+          business_type?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          auth_id?: string;
+          email?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          state?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          profile_image_url?: string | null;
+          walmart_seller_id?: string | null;
+          amazon_seller_id?: string | null;
+          tax_id?: string | null;
+          business_type?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
         };
       };
     };
@@ -425,6 +521,17 @@ export type Database = {
           status: string;
           remarks: string | null;
           created_at: string;
+          user_id: string;
+        };
+      };
+      batch_analytics_view: {
+        Row: {
+          upload_batch_id: string;
+          order_count: number;
+          created_at: string;
+          user_id: string;
+          total_revenue: number;
+          total_profit: number;
         };
       };
     };
@@ -434,10 +541,31 @@ export type Database = {
 // Let's add a function to check the database schema
 export async function checkDatabaseSchema() {
   try {
+    // Create an authenticated client
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
+    
+    // Try to get the current session
+    const { data: { session } } = await authClient.auth.getSession();
+    const userId = session?.user?.id;
+    
+    if (!userId) {
+      return { 
+        success: false, 
+        error: 'No authenticated user found'
+      };
+    }
+    
     // Check if the products table has a status field
-    const { data, error } = await supabase
+    const { data, error } = await authClient
       .from('products')
       .select('status')
+      .eq('user_id', userId)
       .limit(1);
     
     if (error) {
@@ -446,7 +574,7 @@ export async function checkDatabaseSchema() {
     }
     
     // Check the metadata/columns for the products table
-    const { data: tableInfo, error: tableError } = await supabase.rpc('get_table_info', {
+    const { data: tableInfo, error: tableError } = await authClient.rpc('get_table_info', {
       table_name: 'products'
     });
     
@@ -463,5 +591,17 @@ export async function checkDatabaseSchema() {
   } catch (err) {
     console.error('Schema check failed:', err);
     return { success: false, error: err };
+  }
+}
+
+// Helper to get current user ID safely
+export async function getCurrentUserId() {
+  try {
+    const client = createClientComponentClient();
+    const { data: { session } } = await client.auth.getSession();
+    return session?.user?.id;
+  } catch (error) {
+    console.error('Error getting current user ID:', error);
+    return null;
   }
 } 

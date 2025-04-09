@@ -27,11 +27,17 @@ export default function InventoryPage() {
 
   // Function to trigger a refresh of all inventory components
   const refreshInventory = () => {
-    setRefreshCounter(prev => prev + 1);
+    console.log('InventoryPage: Triggering inventory refresh...');
+    setRefreshCounter(prev => {
+      const newCounter = prev + 1;
+      console.log(`InventoryPage: Refresh counter updated to ${newCounter}`);
+      return newCounter;
+    });
   };
   
   // Handle item update
   const handleItemUpdated = () => {
+    console.log('InventoryPage: Item updated, refreshing inventory...');
     refreshInventory();
     // Clear the URL parameter
     if (typeof window !== 'undefined') {

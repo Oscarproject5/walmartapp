@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/auth-context';
 
 interface EditInventoryItemModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
+  const { user } = useAuth();
   
   const [formData, setFormData] = useState({
     product_name: '',
@@ -36,7 +38,7 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
   }, [isOpen, itemId]);
 
   const fetchItemData = async () => {
-    if (!itemId) return;
+    if (!itemId || !user) return;
 
     setIsFetching(true);
     setError(null);
@@ -46,6 +48,7 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
         .from('products')
         .select('*')
         .eq('id', itemId)
+        .eq('user_id', user.id)
         .single();
 
       if (error) throw error;
@@ -54,8 +57,8 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
         setFormData({
           product_name: data.name || data.product_name || '',
           product_sku: data.product_sku || '',
-          quantity: data.quantity || 0,
-          cost_per_item: data.cost_per_item || 0,
+          quantity: data.quantity !== null ? data.quantity : 0,
+          cost_per_item: data.cost_per_item !== null ? data.cost_per_item : 0,
           purchase_date: data.purchase_date ? new Date(data.purchase_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           supplier: data.supplier || '',
           source: data.source || 'walmart',
@@ -77,7 +80,7 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
     setFormData(prev => ({
       ...prev,
       [name]: name === 'quantity' || name === 'cost_per_item' 
-        ? parseFloat(value) || 0 
+        ? value === '' ? '' : parseFloat(value) || 0 
         : value
     }));
   };
@@ -109,8 +112,8 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
     setError(null);
     setSuccess(false);
     
-    if (!itemId) {
-      setError('No item selected for editing');
+    if (!itemId || !user) {
+      setError('No item selected for editing or user not authenticated');
       return;
     }
     
@@ -152,6 +155,7 @@ export default function EditInventoryItemModal({ isOpen, onClose, onItemUpdated,
           purchase_price: formData.cost_per_item * formData.quantity,
         })
         .eq('id', itemId)
+        .eq('user_id', user.id)
         .select();
       
       if (error) throw error;

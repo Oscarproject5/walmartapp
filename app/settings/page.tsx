@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { Database } from '../lib/supabase';
 
 type AppSettings = Database['public']['Tables']['app_settings']['Row'];
@@ -11,20 +11,45 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
 
   useEffect(() => {
-    loadSettings();
+    const getUserAndLoadSettings = async () => {
+      try {
+        // Get the authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError) throw authError;
+        
+        if (user) {
+          setUserId(user.id);
+          await loadSettings(user.id);
+        } else {
+          setMessage({ type: 'error', text: 'You must be logged in to view settings' });
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('Authentication error:', error);
+        setMessage({ type: 'error', text: 'Authentication failed. Please log in again.' });
+        setIsLoading(false);
+      }
+    };
+    
+    getUserAndLoadSettings();
   }, []);
 
-  const loadSettings = async () => {
+  const loadSettings = async (uid: string) => {
     try {
       const { data, error } = await supabase
         .from('app_settings')
         .select('*')
+        .eq('user_id', uid)
         .limit(1);
 
       if (error) throw error;
       
+      // If settings exist, use them; otherwise, use defaults
       setSettings(data?.[0] || {
         shipping_base_cost: 1.75,
         label_cost: 2.25,
@@ -33,6 +58,7 @@ export default function SettingsPage() {
         auto_reorder_enabled: false,
         auto_price_adjustment_enabled: false,
         openrouter_api_key: null,
+        user_id: uid,
       });
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -44,6 +70,12 @@ export default function SettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    if (!userId) {
+      setMessage({ type: 'error', text: 'You must be logged in to save settings' });
+      return;
+    }
+    
     setIsSaving(true);
     setMessage({ type: '', text: '' });
 
@@ -58,24 +90,28 @@ export default function SettingsPage() {
         auto_price_adjustment_enabled: formData.get('auto_price_adjustment_enabled') === 'true',
         openrouter_api_key: formData.get('openrouter_api_key') as string,
         updated_at: new Date().toISOString(),
+        user_id: userId,
       };
 
       let response;
       if (settings?.id) {
+        // Update existing settings, ensuring they belong to the current user
         response = await supabase
           .from('app_settings')
           .update(updates)
-          .eq('id', settings.id);
+          .eq('id', settings.id)
+          .eq('user_id', userId);
       } else {
+        // Insert new settings with the user's ID
         response = await supabase
           .from('app_settings')
-          .insert([{ ...updates, user_id: 'default' }]);
+          .insert([{ ...updates, user_id: userId }]);
       }
 
       if (response.error) throw response.error;
 
       setMessage({ type: 'success', text: 'Settings saved successfully' });
-      loadSettings();
+      loadSettings(userId);
     } catch (error) {
       console.error('Error saving settings:', error);
       setMessage({ type: 'error', text: 'Failed to save settings' });
@@ -86,6 +122,18 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return <div className="text-center py-12">Loading...</div>;
+  }
+  
+  if (!userId) {
+    return (
+      <div className="py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-red-50 p-4 rounded-md text-red-700">
+            You must be logged in to view and manage settings.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

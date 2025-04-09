@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency } from '../utils/calculations';
@@ -121,11 +121,29 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
   const [showEditItemModal, setShowEditItemModal] = useState(false);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   
+  // Add user state
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabaseClient = createClientComponentClient();
+  
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
+
   // Update the useEffect to reset pagination when inventory changes
   useEffect(() => {
-    fetchInventory();
+    if (userId) {
+      console.log('InventoryTable: User ID available, fetching data...');
+      fetchInventory();
+    }
     checkPermissions();
-  }, []);
+  }, [userId, refresh]);
 
   useEffect(() => {
     // Reset to first page when search query changes
@@ -167,6 +185,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
     });
   };
 
+  // Update the fetchInventory function to use user_id filtering
   const fetchInventory = async () => {
     try {
       setIsLoading(true);
@@ -176,21 +195,45 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         console.log(`Refreshing inventory (${refresh})`);
       }
 
-      // Fetch all products from Supabase
-      const { data, error } = await supabase
+      // Only fetch data if we have a userId
+      if (!userId) {
+        console.log('No user ID available, deferring inventory fetch');
+        return;
+      }
+
+      console.log('Fetching inventory data from the database...');
+      console.log(`Using user_id: ${userId}`);
+      
+      // Fetch products for the current user
+      const { data, error } = await supabaseClient
         .from('products')
         .select('*')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
       if (error) {
         throw error;
       }
 
+      console.log(`Inventory data fetched: ${data?.length || 0} items found`);
+      
       // Process the data to add calculated fields
       const processedData = processInventoryData(data || []);
       
+      console.log('Setting inventory state with processed data...');
       setInventory(processedData);
       setFilteredInventory(processedData);
+      
+      // Log counts for debugging
+      const counts = {
+        total: processedData.length,
+        active: processedData.filter(item => item.status === 'active').length,
+        lowStock: processedData.filter(item => item.status === 'low_stock').length,
+        outOfStock: processedData.filter(item => item.status === 'out_of_stock').length,
+        totalQty: processedData.reduce((sum, item) => sum + (item.quantity || 0), 0),
+        totalValue: processedData.reduce((sum, item) => sum + (item.stock_value || 0), 0).toFixed(2),
+      };
+      console.log('Inventory stats:', counts);
       
       // Update the database with calculated statuses
       updateInventoryStatuses(processedData);
@@ -203,22 +246,28 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
     }
   };
   
-  // Function to update inventory statuses in the database
+  // Update the updateInventoryStatuses function to use the authenticated client
   const updateInventoryStatuses = async (items: any[]) => {
+    if (!userId) {
+      console.log('No user ID available, skipping status updates');
+      return;
+    }
+    
     for (const item of items) {
       // Only update if status has been recalculated differently from stored value
       if (item.status !== item.original_status) {
         try {
-          const { error } = await supabase
+          const { error } = await supabaseClient
             .from('products')
             .update({ status: item.status })
-            .eq('id', item.id);
+            .eq('id', item.id)
+            .eq('user_id', userId);
             
           if (error) {
-            console.error(`Error updating status for product ${item.id}:`, error);
+            console.error(`Failed to update status for item ${item.id}:`, error);
           }
         } catch (err) {
-          console.error(`Exception updating status for product ${item.id}:`, err);
+          console.error(`Error updating item ${item.id} status:`, err);
         }
       }
     }
@@ -276,93 +325,42 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Function to handle actual deletion
   const handleDelete = async () => {
-    if (!deleteItemId) return;
+    if (!deleteItemId || !userId) return;
     
     try {
       setIsDeleting(true);
-      setErrorDetails(null);
       
-      // Log the deletion attempt
-      console.log(`Attempting to delete product with ID: ${deleteItemId}`);
+      console.log(`Deleting inventory item with ID: ${deleteItemId}`);
       
-      // First check if product has related sales records
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales')
-        .select('id')
-        .eq('product_id', deleteItemId)
-        .limit(1);
-      
-      console.log('Sales check result:', { salesData, salesError });
-      
-      if (salesError) {
-        throw new Error(`Error checking sales data: ${salesError.message}`);
-      }
-      
-      // If product has sales records, prevent deletion and show appropriate message
-      if (salesData && salesData.length > 0) {
-        setErrorDetails(JSON.stringify({
-          message: "Cannot delete product with related sales records",
-          details: "This product has sales records associated with it. Delete the sales records first or mark the product as inactive instead.",
-          hint: "Consider adding a status field to mark products as inactive instead of deleting them."
-        }, null, 2));
-        throw new Error("Cannot delete: Product has related sales records");
-      }
-      
-      // Check for any other foreign key relationships
-      console.log('Checking for other foreign key relationships...');
-      
-      // If no sales records, proceed with deletion
-      console.log('Proceeding with deletion');
-      const deleteResponse = await supabase
+      // Delete the item with user_id check
+      const { error } = await supabaseClient
         .from('products')
         .delete()
-        .eq('id', deleteItemId);
+        .eq('id', deleteItemId)
+        .eq('user_id', userId);
       
-      console.log('Delete response:', deleteResponse);
-      
-      if (deleteResponse.error) {
-        console.error('Supabase delete error:', deleteResponse.error.message, deleteResponse.error.details, deleteResponse.error.hint);
-        setErrorDetails(JSON.stringify({ 
-          message: deleteResponse.error.message, 
-          details: deleteResponse.error.details, 
-          hint: deleteResponse.error.hint,
-          code: deleteResponse.error.code
-        }, null, 2));
-        throw new Error(`Failed to delete: ${deleteResponse.error.message}`);
+      if (error) {
+        throw error;
       }
       
-      // Remove item from local state
-      setInventory(prev => prev.filter(item => item.id !== deleteItemId));
+      console.log('Item deleted successfully');
       
-      // Close the dialog
+      // Remove the item from local state
+      setInventory(prev => prev.filter(item => item.id !== deleteItemId));
+      setFilteredInventory(prev => prev.filter(item => item.id !== deleteItemId));
+      
+      // Reset state
       setShowDeleteConfirm(false);
       setDeleteItemId(null);
       
-      // Call the onItemDeleted callback if provided
+      // Refresh the parent component if needed
       if (onItemDeleted) {
         onItemDeleted();
       }
       
-    } catch (err) {
-      console.error('Error deleting inventory item:', err);
-      
-      // Check if this is a foreign key constraint error
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete item. Please try again.';
-      const isForeignKeyError = 
-        errorMessage.includes('foreign key constraint') || 
-        errorMessage.includes('violates foreign key constraint') ||
-        errorMessage.includes('referenced from table');
-      
-      if (isForeignKeyError) {
-        setErrorDetails(JSON.stringify({
-          message: "Cannot delete: Product has related records",
-          details: "This product has sales or other records associated with it that prevent deletion.",
-          hint: "Use the 'Mark as Inactive' option instead of delete to preserve data integrity while hiding this product."
-        }, null, 2));
-        setError("Cannot delete: Product has related records. Use 'Mark as Inactive' instead.");
-      } else {
-        setError(errorMessage);
-      }
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      setError('Failed to delete the item. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -370,112 +368,108 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Function to mark product as inactive
   const handleInactivate = async () => {
-    if (!deleteItemId) return;
+    if (!deleteItemId || !userId) return;
     
     try {
       setIsDeleting(true);
-      setErrorDetails(null);
       
-      console.log(`Attempting to mark product ${deleteItemId} as inactive`);
+      console.log(`Inactivating inventory item with ID: ${deleteItemId}`);
       
-      // Check if status field exists in the product schema
-      const { data: productSchemaData, error: productSchemaError } = await supabase
-        .from('products')
-        .select('status')
-        .eq('id', deleteItemId)
-        .single();
-      
-      console.log('Product schema check:', { productSchemaData, productSchemaError });
-      
-      // Update the product status to "inactive" instead of deleting
-      const updateResponse = await supabase
+      const { error } = await supabaseClient
         .from('products')
         .update({ status: 'inactive' })
-        .eq('id', deleteItemId);
+        .eq('id', deleteItemId)
+        .eq('user_id', userId);
       
-      console.log('Update response:', updateResponse);
-      
-      if (updateResponse.error) {
-        console.error('Supabase update error:', updateResponse.error.message, updateResponse.error.details, updateResponse.error.hint);
-        setErrorDetails(JSON.stringify({ 
-          message: updateResponse.error.message, 
-          details: updateResponse.error.details, 
-          hint: updateResponse.error.hint,
-          code: updateResponse.error.code
-        }, null, 2));
-        throw new Error(`Failed to mark as inactive: ${updateResponse.error.message}`);
+      if (error) {
+        throw error;
       }
       
-      // Update item in local state
-      setInventory(prev => prev.map(item => 
-        item.id === deleteItemId ? { ...item, status: 'inactive' } : item
-      ));
+      console.log('Item inactivated successfully');
       
-      // Close the dialog
+      // Update the status in local state
+      setInventory(prev => 
+        prev.map(item => 
+          item.id === deleteItemId 
+            ? { ...item, status: 'inactive' } 
+            : item
+        )
+      );
+      
+      setFilteredInventory(prev => 
+        prev.map(item => 
+          item.id === deleteItemId 
+            ? { ...item, status: 'inactive' } 
+            : item
+        )
+      );
+      
+      // Reset state
       setShowDeleteConfirm(false);
       setDeleteItemId(null);
-      setInactivateMode(false);
       
-      // Call the onItemDeleted callback if provided
+      // Refresh the parent component if needed
       if (onItemDeleted) {
         onItemDeleted();
       }
       
-    } catch (err) {
-      console.error('Error updating inventory item:', err);
-      setError(err instanceof Error ? err.message : 'Failed to mark item as inactive. Please try again.');
+    } catch (error) {
+      console.error('Error inactivating item:', error);
+      setError('Failed to inactivate the item. Please try again.');
     } finally {
       setIsDeleting(false);
     }
   };
 
-  // Add a function to handle activation (opposite of inactivate)
   const handleActivate = async () => {
-    if (!deleteItemId) return;
+    if (!deleteItemId || !userId) return;
     
     try {
       setIsDeleting(true);
-      setErrorDetails(null);
       
-      console.log(`Attempting to mark product ${deleteItemId} as active`);
+      console.log(`Activating inventory item with ID: ${deleteItemId}`);
       
-      // Update the product status to "active"
-      const updateResponse = await supabase
+      const { error } = await supabaseClient
         .from('products')
         .update({ status: 'active' })
-        .eq('id', deleteItemId);
+        .eq('id', deleteItemId)
+        .eq('user_id', userId);
       
-      console.log('Update response:', updateResponse);
-      
-      if (updateResponse.error) {
-        console.error('Supabase update error:', updateResponse.error.message, updateResponse.error.details, updateResponse.error.hint);
-        setErrorDetails(JSON.stringify({ 
-          message: updateResponse.error.message, 
-          details: updateResponse.error.details, 
-          hint: updateResponse.error.hint,
-          code: updateResponse.error.code
-        }, null, 2));
-        throw new Error(`Failed to mark as active: ${updateResponse.error.message}`);
+      if (error) {
+        throw error;
       }
       
-      // Update item in local state
-      setInventory(prev => prev.map(item => 
-        item.id === deleteItemId ? { ...item, status: 'active' } : item
-      ));
+      console.log('Item activated successfully');
       
-      // Close the dialog
+      // Update the status in local state
+      setInventory(prev => 
+        prev.map(item => 
+          item.id === deleteItemId 
+            ? { ...item, status: 'active' } 
+            : item
+        )
+      );
+      
+      setFilteredInventory(prev => 
+        prev.map(item => 
+          item.id === deleteItemId 
+            ? { ...item, status: 'active' } 
+            : item
+        )
+      );
+      
+      // Reset state
       setShowDeleteConfirm(false);
       setDeleteItemId(null);
-      setInactivateMode(false);
       
-      // Call the onItemDeleted callback if provided
+      // Refresh the parent component if needed
       if (onItemDeleted) {
         onItemDeleted();
       }
       
-    } catch (err) {
-      console.error('Error updating inventory item:', err);
-      setError(err instanceof Error ? err.message : 'Failed to mark item as active. Please try again.');
+    } catch (error) {
+      console.error('Error activating item:', error);
+      setError('Failed to activate the item. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -748,20 +742,22 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
       // Step 3: Try to get specific information about a product
       if (deleteItemId) {
         console.log(`Checking product ${deleteItemId}...`);
-        const { data: productData, error: productError } = await supabase
+        const { data: productData, error: productError } = await supabaseClient
           .from('products')
           .select('*')
           .eq('id', deleteItemId)
+          .eq('user_id', userId)
           .single();
           
         results.productCheck = { data: productData, error: productError };
         
         // Step 4: Check for relationships
         console.log('Checking relationships...');
-        const { data: salesData, error: salesError } = await supabase
+        const { data: salesData, error: salesError } = await supabaseClient
           .from('sales')
           .select('id')
           .eq('product_id', deleteItemId)
+          .eq('user_id', userId)
           .limit(1);
         
         console.log('Sales check result:', { salesData, salesError });
@@ -784,10 +780,11 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         
         // If no sales records, proceed with deletion
         console.log('Proceeding with deletion');
-        const deleteResponse = await supabase
+        const deleteResponse = await supabaseClient
           .from('products')
           .delete()
-          .eq('id', deleteItemId);
+          .eq('id', deleteItemId)
+          .eq('user_id', userId);
         
         console.log('Delete response:', deleteResponse);
         
@@ -835,10 +832,11 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
   async function testProductUpdate(productId: string) {
     try {
       // First try to get the product
-      const { data: product, error: getError } = await supabase
+      const { data: product, error: getError } = await supabaseClient
         .from('products')
         .select('*')
         .eq('id', productId)
+        .eq('user_id', userId)
         .single();
       
       if (getError) {
@@ -850,14 +848,15 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
       }
       
       // Try to update the product with the same data (no actual change)
-      const { error: updateError } = await supabase
+      const { error: updateError } = await supabaseClient
         .from('products')
         .update({ 
           // Use existing values to not change anything
           name: product.name,
           quantity: product.quantity
         })
-        .eq('id', productId);
+        .eq('id', productId)
+        .eq('user_id', userId);
       
       if (updateError) {
         return { success: false, error: updateError, phase: 'update' };
@@ -949,10 +948,18 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
     }
   };
   
-  // Update the handleUploadConfirm function to handle the most common issues with data types and requirements
+  // Update the handleUploadConfirm function to include user_id
   const handleUploadConfirm = async () => {
     if (mappedData.length === 0) {
       setUploadError('No data to upload. Please map your columns first.');
+      return;
+    }
+    
+    // Check if user is authenticated
+    if (!userId) {
+      setUploadError('You must be logged in to upload inventory');
+      toast.error('Authentication required');
+      setIsProcessingFile(false);
       return;
     }
     
@@ -1016,6 +1023,9 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
           formattedItem.created_at = new Date().toISOString();
         }
         
+        // Add user_id to each record
+        formattedItem.user_id = userId;
+        
         return formattedItem;
       });
       
@@ -1031,38 +1041,44 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         try {
           console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(formattedData.length/batchSize)}...`);
           
-          // Insert the batch
-          const { data, error } = await supabase
+          // Use upsert instead of insert to handle duplicate SKUs
+          const { data, error } = await supabaseClient
             .from('products')
-            .insert(batch)
+            .upsert(batch, { 
+              onConflict: 'user_id,product_sku',
+              ignoreDuplicates: false // Set to true if you want to keep existing records when there's a conflict
+            })
             .select();
           
           if (error) {
-            console.error(`Error inserting batch ${Math.floor(i/batchSize) + 1}:`, error);
+            console.error(`Error upserting batch ${Math.floor(i/batchSize) + 1}:`, error);
             
-            // If batch insert fails, try individual inserts for more granular error reporting
-            console.log('Trying individual inserts for this batch...');
+            // If batch upsert fails, try individual upserts for more granular error reporting
+            console.log('Trying individual upserts for this batch...');
             
             for (let j = 0; j < batch.length; j++) {
               const item = batch[j];
               
               try {
-                const { data: itemData, error: itemError } = await supabase
+                const { data: itemData, error: itemError } = await supabaseClient
                   .from('products')
-                  .insert([item])
+                  .upsert([item], { 
+                    onConflict: 'user_id,product_sku',
+                    ignoreDuplicates: false 
+                  })
                   .select();
                 
                 if (itemError) {
-                  console.error(`Error inserting item ${i+j+1}:`, itemError);
-                  
-                  // Check for specific error types
-                  if (itemError.message && itemError.message.includes('duplicate key')) {
-                    stats.duplicates++;
-                  } else {
-                    stats.errors++;
-                  }
+                  console.error(`Error upserting item ${i+j+1}:`, itemError);
+                  stats.errors++;
                 } else {
-                  stats.success++;
+                  // Check if it was an update (duplicate) or insert
+                  if (itemData && itemData.length > 0) {
+                    // Item was successfully upserted
+                    stats.success++;
+                  } else {
+                    stats.duplicates++;
+                  }
                 }
               } catch (err) {
                 console.error(`Exception processing item ${i+j+1}:`, err);
@@ -1070,9 +1086,9 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
               }
             }
           } else {
-            // Batch insert succeeded
+            // Batch upsert succeeded
             stats.success += batch.length;
-            console.log(`Successfully inserted batch ${Math.floor(i/batchSize) + 1}`);
+            console.log(`Successfully upserted batch ${Math.floor(i/batchSize) + 1}`);
           }
         } catch (err) {
           console.error(`Exception processing batch ${Math.floor(i/batchSize) + 1}:`, err);
@@ -1093,9 +1109,17 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
           
         toast.success(successMsg);
         
-        // Refresh inventory data
-        fetchInventory();
-        if (onItemDeleted) onItemDeleted();
+        // Add a delay before fetching inventory to ensure database operations complete
+        console.log('Waiting for database operations to complete before refresh...');
+        setTimeout(() => {
+          // Refresh inventory data
+          console.log('Refreshing inventory data after successful import...');
+          fetchInventory();
+          if (onItemDeleted) {
+            console.log('Calling onItemDeleted callback to update parent components...');
+            onItemDeleted();
+          }
+        }, 1000); // 1 second delay to ensure database operations are complete
         
         // Reset states after short delay to show success message
         setTimeout(() => {
@@ -1171,249 +1195,109 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
     XLSX.writeFile(workbook, `${template}.xlsx`);
   };
 
-  // Update the handleClearInventory function with improved relationship checking
-  const handleClearInventory = async () => {
+  // Function to clear inventory
+  const clearInventory = async () => {
+    if (!userId) {
+      setClearError('You must be logged in to clear inventory');
+      return;
+    }
+    
     try {
+      console.log('Clearing inventory...');
       setIsClearingInventory(true);
       setClearError(null);
       
-      // First, get all product IDs and SKUs
-      const { data: products, error: fetchError } = await supabase
+      // Use a transaction or a single delete command
+      const { error } = await supabaseClient
         .from('products')
-        .select('id, product_sku')
-        .limit(1000);
+        .delete()
+        .eq('user_id', userId);
       
-      if (fetchError) {
-        console.error('Error fetching products for deletion:', fetchError);
-        throw new Error(fetchError.message || 'Failed to fetch products for deletion');
-      }
+      if (error) throw error;
       
-      if (!products || products.length === 0) {
-        setClearSuccess(true);
-        toast.success('No inventory items to delete');
-        setTimeout(() => {
-          setShowClearModal(false);
-          setClearSuccess(false);
-        }, 1500);
-        return;
-      }
+      // Clear the inventory state
+      setInventory([]);
+      setFilteredInventory([]);
+      setClearSuccess(true);
       
-      console.log(`Found ${products.length} products to delete`);
-      
-      // Check which products are referenced in the orders table
-      const { data: orderRelationships, error: orderRelError } = await supabase
-        .from('orders')
-        .select('sku')
-        .in('sku', products.map(p => p.product_sku).filter(Boolean));
-        
-      if (orderRelError) {
-        console.error('Error checking order relationships:', orderRelError);
-      }
-      
-      // Check which products might have relationships with sales
-      const { data: salesRelationships, error: salesRelError } = await supabase
-        .from('sales')
-        .select('product_id')
-        .in('product_id', products.map(p => p.id));
-        
-      if (salesRelError) {
-        console.error('Error checking sales relationships:', salesRelError);
-      }
-      
-      // Create sets for easy lookups
-      const productsWithOrders = new Set(orderRelationships?.map(o => o.sku) || []);
-      const productsWithSales = new Set(salesRelationships?.map(s => s.product_id) || []);
-      
-      // Get all product IDs and filter out those with relationships
-      const productIds = products.map(p => p.id);
-      const safeToDeleteIds = productIds.filter(id => {
-        const product = products.find(p => p.id === id);
-        return !productsWithSales.has(id) && !productsWithOrders.has(product?.product_sku);
-      });
-      
-      // Count products with orders/sales for reporting
-      const productsWithOrdersCount = products.filter(p => productsWithOrders.has(p.product_sku)).length;
-      const productsWithSalesCount = productsWithSales.size;
-      
-      console.log(`Products with sales: ${productsWithSalesCount}, Products with orders: ${productsWithOrdersCount}, Safe to delete: ${safeToDeleteIds.length}`);
-      
-      // If all products have relationships, inform the user without attempting deletion
-      if (safeToDeleteIds.length === 0) {
-        setClearError(
-          `Cannot delete inventory. All items have either orders or sales records associated with them. ` +
-          `Delete the associated orders first, or use 'Mark as Inactive' on individual items instead.`
-        );
-        return;
-      }
-      
-      // Delete products in smaller batches to avoid timeout/permission issues
-      const batchSize = 25; // Smaller batch size
-      let deletedCount = 0;
-      let errorCount = 0;
-      let skippedCount = products.length - safeToDeleteIds.length;
-      
-      for (let i = 0; i < safeToDeleteIds.length; i += batchSize) {
-        const batchIds = safeToDeleteIds.slice(i, i + batchSize);
-        console.log(`Deleting batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(safeToDeleteIds.length/batchSize)}, size: ${batchIds.length}`);
-        
-        try {
-          // Add a small delay between batches to prevent overloading the database
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          
-          const { error: deleteError } = await supabase
-            .from('products')
-            .delete()
-            .in('id', batchIds);
-          
-          if (deleteError) {
-            console.error(`Error deleting batch ${Math.floor(i/batchSize) + 1}:`, deleteError);
-            
-            // Try to get more detailed error info
-            const errorDetails = typeof deleteError === 'object' ? 
-              JSON.stringify(deleteError) : 'Unknown error';
-              
-            console.error(`Error details: ${errorDetails}`);
-            errorCount += batchIds.length;
-          } else {
-            deletedCount += batchIds.length;
-          }
-        } catch (batchError) {
-          console.error(`Exception in batch ${Math.floor(i/batchSize) + 1}:`, batchError);
-          errorCount += batchIds.length;
-        }
-      }
-      
-      console.log(`Deletion complete. Deleted: ${deletedCount}, Errors: ${errorCount}, Skipped: ${skippedCount}`);
-      
-      if (deletedCount > 0) {
-        // Show success message
-        setClearSuccess(true);
-        
-        let message = `Deleted ${deletedCount} items successfully`;
-        if (skippedCount > 0) {
-          message += `. ${productsWithOrdersCount} items with order records and ${productsWithSalesCount} items with sales records were skipped.`;
-        }
-        if (errorCount > 0) {
-          message += ` ${errorCount} items could not be deleted due to errors.`;
-        }
-        
-        toast.success(message);
-        
-        // Refresh inventory
-        fetchInventory();
-      } else {
-        throw new Error('Failed to delete any inventory items. Check console for details.');
-      }
-      
-      // Close modal after delay
+      // Close the modal
       setTimeout(() => {
         setShowClearModal(false);
         setClearSuccess(false);
       }, 2000);
       
-    } catch (error) {
-      console.error('Error clearing inventory:', error);
-      
-      // Handle different error types properly
-      let errorMessage = 'Failed to clear inventory';
-      
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'object' && error !== null) {
-        try {
-          const errorString = JSON.stringify(error);
-          errorMessage = errorString !== '{}' ? errorString : 'Foreign key constraint violation - some products have related orders or sales records';
-        } catch (e) {
-          errorMessage = 'Failed to process error details';
-        }
+      // Refresh the parent component if needed
+      if (onItemDeleted) {
+        onItemDeleted();
       }
       
-      setClearError(errorMessage);
-      toast.error(errorMessage);
+    } catch (error) {
+      console.error('Error clearing inventory:', error);
+      setClearError('Failed to clear inventory. Please try again.');
     } finally {
       setIsClearingInventory(false);
     }
   };
 
-  // Add a function to mark all inventory as inactive
+  // Update the handleMarkAllInactive function to use the authenticated client
   const handleMarkAllInactive = async () => {
     try {
       setIsClearingInventory(true);
       setClearError(null);
       
-      // Get all active products
-      const { data: products, error: fetchError } = await supabase
+      // Get the current user's active inventory items
+      const { data, error: fetchError } = await supabaseClient
         .from('products')
         .select('id')
-        .eq('status', 'active')
-        .limit(1000);
+        .eq('status', 'active');
       
-      if (fetchError) {
-        console.error('Error fetching active products:', fetchError);
-        throw new Error(fetchError.message || 'Failed to fetch products');
-      }
+      if (fetchError) throw fetchError;
       
-      if (!products || products.length === 0) {
-        toast.success('No active inventory items to mark as inactive');
-        setShowClearModal(false);
+      if (!data || data.length === 0) {
+        setClearSuccess(true);
+        toast.success('No active items to mark as inactive');
         return;
       }
       
-      console.log(`Found ${products.length} active products to mark as inactive`);
+      // Update all items' status using the authenticated client
+      const { error: updateError } = await supabaseClient
+        .from('products')
+        .update({ status: 'inactive' })
+        .in('id', data.map(item => item.id));
       
-      // Update products in batches
-      const batchSize = 50;
-      let updatedCount = 0;
-      let errorCount = 0;
+      if (updateError) throw updateError;
       
-      for (let i = 0; i < products.length; i += batchSize) {
-        const batchIds = products.slice(i, i + batchSize).map(p => p.id);
-        
-        try {
-          // Add a small delay between batches
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          
-          const { error: updateError } = await supabase
-            .from('products')
-            .update({ status: 'inactive' })
-            .in('id', batchIds);
-          
-          if (updateError) {
-            console.error(`Error updating batch ${Math.floor(i/batchSize) + 1}:`, updateError);
-            errorCount += batchIds.length;
-          } else {
-            updatedCount += batchIds.length;
-          }
-        } catch (error) {
-          console.error(`Exception in batch ${Math.floor(i/batchSize) + 1}:`, error);
-          errorCount += batchIds.length;
-        }
+      // Update items status in local state
+      setInventory(prev => prev.map(item => 
+        item.status === 'active' ? { ...item, status: 'inactive', original_status: 'inactive' } : item
+      ));
+      setFilteredInventory(prev => prev.map(item => 
+        item.status === 'active' ? { ...item, status: 'inactive', original_status: 'inactive' } : item
+      ));
+      
+      // Show success message
+      setClearSuccess(true);
+      toast.success(`Successfully marked ${data.length} items as inactive`);
+      
+      // Call the onItemDeleted callback if provided
+      if (onItemDeleted) {
+        onItemDeleted();
       }
       
-      if (updatedCount > 0) {
-        setClearSuccess(true);
-        toast.success(`Marked ${updatedCount} items as inactive`);
-        
-        // Refresh inventory
-        fetchInventory();
-        
-        // Close modal after delay
+    } catch (err) {
+      console.error('Error marking items inactive:', err);
+      setClearError('Failed to mark items as inactive. Please try again.');
+      toast.error('Failed to mark items as inactive');
+    } finally {
+      setIsClearingInventory(false);
+      
+      // Auto-close modal after a delay if successful
+      if (clearSuccess) {
         setTimeout(() => {
           setShowClearModal(false);
           setClearSuccess(false);
         }, 2000);
-      } else {
-        setClearError('Failed to mark any items as inactive');
       }
-    } catch (error) {
-      console.error('Error marking all as inactive:', error);
-      setClearError(error instanceof Error ? error.message : 'An unknown error occurred');
-    } finally {
-      setIsClearingInventory(false);
     }
   };
 
@@ -2174,7 +2058,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
                           Cancel
                         </button>
                         <button
-                          onClick={handleClearInventory}
+                          onClick={clearInventory}
                           disabled={isClearingInventory}
                           className={`px-4 py-2 rounded text-white ${
                             isClearingInventory ? 'bg-red-400' : 'bg-red-600 hover:bg-red-700'

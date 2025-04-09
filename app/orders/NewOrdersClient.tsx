@@ -7,6 +7,7 @@ import { Order, OrderStatus } from '../lib/orders-types';
 import { formatCurrency } from '../lib/utils';
 import ExcelColumnMapper from '../components/ExcelColumnMapper';
 import { toast } from 'react-hot-toast';
+import { v4 as uuidv4 } from 'uuid';
 
 // Define interface for shipping settings
 interface ShippingSettings {
@@ -43,6 +44,14 @@ export default function NewOrdersClient() {
   const [importTotalItems, setImportTotalItems] = useState(0);
   const [importProcessedItems, setImportProcessedItems] = useState(0);
   
+  // Add state for batch management
+  const [showBatchesModal, setShowBatchesModal] = useState(false);
+  const [batchData, setBatchData] = useState<{upload_batch_id: string, order_count: number, created_at: string}[]>([]);
+  const [isFetchingBatches, setIsFetchingBatches] = useState(false);
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  
   // Add shipping settings state
   const [shippingSettings, setShippingSettings] = useState<ShippingSettings>({
     shipping_base_cost: 1.75,
@@ -58,30 +67,64 @@ export default function NewOrdersClient() {
 
   // Add state for viewing current month metrics
   const [isViewingCurrentMonth, setIsViewingCurrentMonth] = useState(false);
+  // Add state for selected months
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
+
+  // Month names array for dropdown display
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  // Get current month and year
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
 
   // Metrics calculations
-  const getCurrentMonthOrders = () => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
+  const getFilteredOrdersByMonths = () => {
+    if (selectedMonths.length === 0 && !isViewingCurrentMonth) {
+      return filteredOrders; // Return all orders if no specific months selected
+    }
     
+    // If viewing current month only is selected
+    if (isViewingCurrentMonth) {
+      return filteredOrders.filter(order => {
+        const orderDate = new Date(order.order_date);
+        return orderDate.getFullYear() === currentYear && orderDate.getMonth() === currentMonth;
+      });
+    }
+    
+    // Filter by selected months
     return filteredOrders.filter(order => {
       const orderDate = new Date(order.order_date);
-      return orderDate.getFullYear() === currentYear && orderDate.getMonth() === currentMonth;
+      return selectedMonths.includes(orderDate.getMonth());
     });
   };
   
-  const ordersForMetrics = isViewingCurrentMonth ? getCurrentMonthOrders() : filteredOrders;
+  const ordersForMetrics = getFilteredOrdersByMonths();
   
   const totalRevenue = ordersForMetrics.reduce((sum, order) => sum + order.total_revenue, 0);
   const totalProfit = ordersForMetrics.reduce((sum, order) => sum + order.net_profit, 0);
   
-  const avgRoi = ordersForMetrics.length > 0
-    ? ordersForMetrics.reduce((sum, order) => sum + order.roi, 0) / ordersForMetrics.length
+  // Calculate total investment cost
+  const totalInvestmentCost = ordersForMetrics.reduce((sum, order) => {
+    // Ensure costs are numbers, default to 0 if null/undefined
+    const productCost = Number(order.product_cost_total) || 0;
+    const fulfillment = Number(order.fulfillment_cost) || 0;
+    const fee = Number(order.walmart_fee) || 0;
+    return sum + productCost + fulfillment + fee;
+  }, 0);
+  
+  // Calculate true Overall ROI based on investment cost
+  const overallRoi = totalInvestmentCost > 0 
+    ? (totalProfit / totalInvestmentCost) * 100 
     : 0;
-    
-  const overallRoi = totalRevenue > 0 
-    ? (totalProfit / totalRevenue) * 100 
+
+  // Calculate Overall Profit Margin
+  const overallProfitMargin = totalRevenue > 0
+    ? (totalProfit / totalRevenue) * 100
     : 0;
 
   // Cache for mapped data
@@ -93,20 +136,46 @@ export default function NewOrdersClient() {
       setError(null);
 
       try {
+        // First get the current user
+        const { data: userData, error: authError } = await supabase.auth.getUser();
+        
+        if (authError) {
+          console.error('Authentication error:', authError);
+          throw new Error(`Authentication failed: ${authError.message || 'Unknown error'}`);
+        }
+        
+        const userId = userData?.user?.id;
+        console.log('Current user ID:', userId);
+
+        if (!userId) {
+          throw new Error('No authenticated user found');
+        }
+
+        // Test if user_id column exists before querying with it
+        console.log('Fetching orders with user_id:', userId);
         const { data, error } = await supabase
           .from('orders')
           .select('*')
+          .eq('user_id', userId)
           .order('order_date', { ascending: false });
 
+        // Log detailed error information
         if (error) {
+          console.error('Supabase query error:', error);
+          console.error('Error details:', JSON.stringify(error));
           throw error;
         }
 
+        console.log(`Successfully fetched ${data?.length || 0} orders`);
         setOrders(data || []);
         setFilteredOrders(data || []);
       } catch (err: any) {
+        const errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
         console.error('Error fetching orders:', err);
-        setError('Failed to load orders. Please try again.');
+        console.error('Error type:', typeof err);
+        console.error('Error message:', errorMessage);
+        console.error('Error stack:', err?.stack);
+        setError(`Failed to load orders: ${errorMessage}`);
       } finally {
         setIsLoading(false);
       }
@@ -370,6 +439,14 @@ export default function NewOrdersClient() {
     setIsImporting(true);
     
     try {
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+      
       // First, remove duplicates from the missing SKUs array and normalize case
       const uniqueSkus = [...new Set(skus.map(sku => sku.toUpperCase()))];
       
@@ -407,7 +484,8 @@ export default function NewOrdersClient() {
         cost_per_item: 0,
         quantity: 0,
         source: 'auto-generated',
-        purchase_date: new Date().toISOString().split('T')[0]
+        purchase_date: new Date().toISOString().split('T')[0],
+        user_id: userId // Add user_id to each product
       }));
       
       const { data, error } = await supabase
@@ -435,8 +513,17 @@ export default function NewOrdersClient() {
     setIsImporting(true);
     setImportProcessedItems(0); // Reset progress
     let localSkippedDuplicates = 0;
+    const currentBatchId = uuidv4(); // Generate a unique batch ID for this upload
     
     try {
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+      
       const mappedData = mappedDataRef.current;
       if (!mappedData || !mappedData.length) {
         throw new Error("No data to import");
@@ -506,11 +593,6 @@ export default function NewOrdersClient() {
         const productCost = parseFloat(productData?.per_qty_price ?? productData?.cost_per_item) || 0;
         const fulfillmentCost = parseFloat(originalRow.fulfillment_cost) || calculateFulfillmentCost();
         
-        // Log calculated costs for debugging
-        if (originalRow.order_id === '200013049440339') { // Log specifically for the failing order ID
-             console.log(`[Debug Pre-Validation] Order ID: ${originalRow.order_id}, SKU: ${currentSku}, Calculated productCost: ${productCost}, Calculated fulfillmentCost: ${fulfillmentCost}`);
-        }
-
         let processedRow: any = {
           order_id: originalRow.order_id,
           order_date: originalRow.order_date || new Date().toISOString().split('T')[0],
@@ -521,7 +603,8 @@ export default function NewOrdersClient() {
           walmart_price_per_unit: parseFloat(originalRow.walmart_price_per_unit) || 0,
           walmart_shipping_fee_per_unit: parseFloat(originalRow.walmart_shipping_fee_per_unit) || 0,
           product_cost_per_unit: productCost,
-          fulfillment_cost: fulfillmentCost
+          fulfillment_cost: fulfillmentCost,
+          user_id: userId // Add user_id to each row
         };
         
         // Final check for NOT NULL fields before adding to insert list
@@ -534,6 +617,7 @@ export default function NewOrdersClient() {
         }
         
         // If row is valid, add it to the list for batch insertion
+        processedRow.upload_batch_id = currentBatchId; // Assign batch ID
         rowsToInsert.push(processedRow);
       });
       
@@ -710,10 +794,19 @@ export default function NewOrdersClient() {
       setIsClearingOrders(true);
       setClearOrdersError(null);
       
-      // Get all order IDs
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+      
+      // Get all order IDs for the current user
       const { data: orderIds, error: fetchError } = await supabase
         .from('orders')
         .select('order_id')
+        .eq('user_id', userId)
         .limit(1000);
       
       if (fetchError) {
@@ -839,6 +932,89 @@ export default function NewOrdersClient() {
     }
   };
 
+  // Function to fetch batch data
+  const fetchBatchData = async () => {
+    setIsFetchingBatches(true);
+    setBatchError(null);
+    
+    try {
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+      
+      // Get unique batch IDs and their counts
+      const { data, error } = await supabase.rpc('get_batch_data', { user_id_param: userId });
+      
+      if (error) {
+        throw error;
+      }
+      
+      if (!data || data.length === 0) {
+        setBatchData([]);
+        return;
+      }
+      
+      console.log("Fetched batch data:", data);
+      setBatchData(data);
+    } catch (err: any) {
+      console.error("Error fetching batch data:", err);
+      setBatchError(err.message || "Failed to fetch batch data");
+    } finally {
+      setIsFetchingBatches(false);
+    }
+  };
+  
+  // Function to delete a specific batch
+  const handleDeleteBatch = async (batchId: string) => {
+    try {
+      setIsDeletingBatch(true);
+      setSelectedBatchId(batchId);
+      setBatchError(null);
+      
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+      
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('upload_batch_id', batchId)
+        .eq('user_id', userId);
+      
+      if (error) throw error;
+      
+      // Update batches list
+      setBatchData(prev => prev.filter(batch => batch.upload_batch_id !== batchId));
+      
+      // Refresh orders
+      const { data: updatedOrders, error: fetchError } = await supabase
+        .from('orders')
+        .select('*')
+        .order('order_date', { ascending: false });
+        
+      if (fetchError) throw fetchError;
+      
+      setOrders(updatedOrders || []);
+      
+      toast.success('Batch deleted successfully');
+    } catch (err: any) {
+      console.error('Error deleting batch:', err);
+      setBatchError(err.message || 'Failed to delete batch');
+      toast.error('Failed to delete batch. Please try again.');
+    } finally {
+      setIsDeletingBatch(false);
+      setSelectedBatchId(null);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold gradient-text mb-6">Orders Management</h1>
@@ -885,7 +1061,7 @@ export default function NewOrdersClient() {
       )}
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="card p-4 border-l-4 border-l-blue-500 bg-gradient-to-br from-white to-blue-50">
           <div className="text-sm text-blue-600 font-medium mb-1">Total Revenue</div>
           <div className="text-2xl font-bold text-slate-800">{formatCurrency(totalRevenue)}</div>
@@ -895,13 +1071,29 @@ export default function NewOrdersClient() {
           <div className="text-2xl font-bold text-slate-800">{formatCurrency(totalProfit)}</div>
         </div>
         <div className="card p-4 border-l-4 border-l-purple-500 bg-gradient-to-br from-white to-purple-50">
-          <div className="text-sm text-purple-600 font-medium mb-1">Avg. ROI</div>
-          <div className="text-2xl font-bold text-slate-800">{avgRoi.toFixed(2)}%</div>
+          <div className="text-sm text-purple-600 font-medium mb-1">Fulfillment Costs</div>
+          <div className="text-2xl font-bold text-slate-800">{formatCurrency(ordersForMetrics.reduce((sum, order) => sum + Number(order.fulfillment_cost || 0), 0))}</div>
+          <div className="text-xs text-slate-500 mt-1 flex items-center">
+            <span className="font-medium mr-1">Per order:</span> ${calculateFulfillmentCost().toFixed(2)}
+          </div>
         </div>
         <div className="card p-4 border-l-4 border-l-orange-500 bg-gradient-to-br from-white to-orange-50">
           <div className="text-sm text-orange-600 font-medium mb-1">Overall ROI</div>
           <div className="text-2xl font-bold text-slate-800">{overallRoi.toFixed(2)}%</div>
-          <div className="text-xs text-slate-500 mt-1">{isViewingCurrentMonth ? 'Current Month' : 'All Time'}</div>
+          <div className="text-xs text-slate-500 mt-1">
+            {isViewingCurrentMonth ? 'Current Month' : 
+             selectedMonths.length > 0 ? `${selectedMonths.length} Month${selectedMonths.length > 1 ? 's' : ''} Selected` : 
+             'All Time'}
+          </div>
+        </div>
+        <div className="card p-4 border-l-4 border-l-teal-500 bg-gradient-to-br from-white to-teal-50">
+          <div className="text-sm text-teal-600 font-medium mb-1">Profit Margin (Current View)</div>
+          <div className="text-2xl font-bold text-slate-800">{overallProfitMargin.toFixed(2)}%</div>
+          <div className="text-xs text-slate-500 mt-1">
+            {isViewingCurrentMonth ? 'Current Month' : 
+             selectedMonths.length > 0 ? `${selectedMonths.length} Month${selectedMonths.length > 1 ? 's' : ''} Selected` : 
+             'All Time'}
+          </div>
         </div>
       </div>
 
@@ -937,6 +1129,30 @@ export default function NewOrdersClient() {
           </button>
           
           <button
+            onClick={() => {
+              setShowBatchesModal(true);
+              fetchBatchData();
+            }}
+            className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center mr-2 text-sm"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-3.5 w-3.5 mr-1.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
+            </svg>
+            Manage Batches
+          </button>
+          
+          <button
             onClick={() => setShowClearOrdersModal(true)}
             className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center mr-2 text-sm"
           >
@@ -957,26 +1173,109 @@ export default function NewOrdersClient() {
             Clear All Orders
           </button>
           
-          <button
-            onClick={() => setIsViewingCurrentMonth(!isViewingCurrentMonth)}
-            className={`px-3 py-1.5 ${isViewingCurrentMonth ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-600 hover:bg-slate-700'} text-white rounded-lg flex items-center mr-2 text-sm`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-3.5 w-3.5 mr-1.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (selectedMonths.length === 0) {
+                  // If no months selected, toggle current month filter
+                  setIsViewingCurrentMonth(!isViewingCurrentMonth);
+                }
+                setShowMonthDropdown(!showMonthDropdown);
+              }}
+              className={`px-3 py-1.5 ${
+                isViewingCurrentMonth || selectedMonths.length > 0 
+                  ? 'bg-indigo-600 hover:bg-indigo-700' 
+                  : 'bg-slate-600 hover:bg-slate-700'
+              } text-white rounded-lg flex items-center mr-2 text-sm`}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-            {isViewingCurrentMonth ? 'Show All Time' : 'Show Current Month'}
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-3.5 w-3.5 mr-1.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              </svg>
+              {isViewingCurrentMonth ? 'Current Month' : 
+               selectedMonths.length > 0 ? `${selectedMonths.length} Month${selectedMonths.length > 1 ? 's' : ''} Selected` : 
+               'Filter by Month'}
+              <ChevronDown className="h-3.5 w-3.5 ml-1.5" />
+            </button>
+            
+            {showMonthDropdown && (
+              <div className="absolute right-0 mt-1 bg-white rounded-md shadow-lg z-10 border border-slate-200 w-56">
+                <div className="p-2">
+                  <div className="mb-2 border-b border-slate-200 pb-2">
+                    <label className="flex items-center space-x-2 p-1.5 hover:bg-slate-50 rounded">
+                      <input
+                        type="checkbox"
+                        checked={isViewingCurrentMonth}
+                        onChange={() => {
+                          setIsViewingCurrentMonth(!isViewingCurrentMonth);
+                          // Clear multi-month selection when selecting current month only
+                          if (!isViewingCurrentMonth) {
+                            setSelectedMonths([]);
+                          }
+                        }}
+                        className="h-4 w-4 text-indigo-600 rounded"
+                      />
+                      <span className="text-sm font-medium">Current Month Only</span>
+                    </label>
+                  </div>
+                  
+                  <div className="mb-1">
+                    <div className="text-xs font-medium text-slate-500 mb-1 px-1.5">Select Multiple Months:</div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {monthNames.map((month, index) => (
+                        <label key={month} className="flex items-center space-x-2 p-1.5 hover:bg-slate-50 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedMonths.includes(index)}
+                            onChange={() => {
+                              setIsViewingCurrentMonth(false);
+                              setSelectedMonths(prev => 
+                                prev.includes(index)
+                                  ? prev.filter(m => m !== index)
+                                  : [...prev, index]
+                              );
+                            }}
+                            className="h-4 w-4 text-indigo-600 rounded"
+                            disabled={isViewingCurrentMonth}
+                          />
+                          <span className="text-sm">{month}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2 pt-2 border-t border-slate-200 flex justify-between">
+                    <button
+                      onClick={() => {
+                        setSelectedMonths([]);
+                        setIsViewingCurrentMonth(false);
+                        setShowMonthDropdown(false);
+                      }}
+                      className="text-xs text-slate-600 hover:text-slate-800"
+                    >
+                      Clear All
+                    </button>
+                    <button
+                      onClick={() => setShowMonthDropdown(false)}
+                      className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
           
           <button
             className="px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center text-slate-700 text-sm"
@@ -1029,7 +1328,7 @@ export default function NewOrdersClient() {
                 </tr>
               ) : (
                 currentOrders.map((order) => (
-                  <tr key={order.order_id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <tr key={`${order.order_id}-${order.sku}`} className="border-t border-slate-100 hover:bg-slate-50">
                     <td>
                       <div className="font-medium text-blue-700">{order.order_id}</div>
                       <div className="text-xs text-slate-500 flex items-center">
@@ -1058,8 +1357,8 @@ export default function NewOrdersClient() {
                       <div className="text-sm text-emerald-600 font-medium">
                         Profit: {formatCurrency(order.net_profit)}
                       </div>
-                      <div className="text-xs text-purple-600">
-                        ROI: {order.roi.toFixed(2)}%
+                      <div className="text-xs text-slate-500 flex items-center mt-1">
+                        <span className="font-medium">Fulfillment:</span> {formatCurrency(order.fulfillment_cost)}
                       </div>
                     </td>
                     {showAllColumns && (
@@ -1376,6 +1675,149 @@ export default function NewOrdersClient() {
                   <p className="text-sm mt-1">Your orders table is now empty.</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Batch Management Modal */}
+      {showBatchesModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 mr-2 text-indigo-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+                Manage Order Batches
+              </h3>
+              <button
+                onClick={() => setShowBatchesModal(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            {batchError && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                {batchError}
+              </div>
+            )}
+            
+            <p className="text-slate-600 mb-4">
+              Orders are grouped by upload batch. You can delete specific batches without affecting others.
+            </p>
+            
+            {isFetchingBatches ? (
+              <div className="py-8 text-center text-slate-500">
+                <svg className="animate-spin h-6 w-6 mx-auto mb-2 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Loading batches...
+              </div>
+            ) : batchData.length === 0 ? (
+              <div className="py-8 text-center text-slate-500 border border-slate-200 rounded-lg">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-10 w-10 mx-auto mb-2 text-slate-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                  />
+                </svg>
+                <p>No batch information found.</p>
+                <p className="text-sm mt-1">Orders may not have been uploaded in batches.</p>
+              </div>
+            ) : (
+              <div className="overflow-hidden border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Batch ID</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Upload Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Orders</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-200">
+                    {batchData.map((batch) => (
+                      <tr key={batch.upload_batch_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-sm text-slate-900">
+                          <div className="font-mono text-xs truncate max-w-[150px]" title={batch.upload_batch_id}>
+                            {batch.upload_batch_id.substring(0, 8)}...
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-900">
+                          {new Date(batch.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-900">
+                          {batch.order_count}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-900 text-center">
+                          <button
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete all ${batch.order_count} orders in this batch? This action cannot be undone.`)) {
+                                handleDeleteBatch(batch.upload_batch_id);
+                              }
+                            }}
+                            disabled={isDeletingBatch && selectedBatchId === batch.upload_batch_id}
+                            className={`inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white 
+                              ${isDeletingBatch && selectedBatchId === batch.upload_batch_id
+                                ? 'bg-red-400 cursor-not-allowed'
+                                : 'bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500'
+                              }`}
+                          >
+                            {isDeletingBatch && selectedBatchId === batch.upload_batch_id ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="mr-1.5 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete Batch
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setShowBatchesModal(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

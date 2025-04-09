@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Dialog, Transition } from '@headlessui/react';
 import {
@@ -10,17 +10,30 @@ import {
   ShoppingCartIcon,
   ChartBarIcon,
   Cog6ToothIcon,
-  UserCircleIcon
+  UserCircleIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
+  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
   { name: 'Inventory', href: '/inventory', icon: Squares2X2Icon },
   { name: 'Orders', href: '/orders', icon: ShoppingCartIcon },
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
   { name: 'Product Performance', href: '/product-performance', icon: Squares2X2Icon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
+];
+
+const adminNavigation = [
+  { name: 'Manage Invitations', href: '/admin/invitations', icon: UserCircleIcon },
+  { name: 'Database Migrations', href: '/admin/migrations', icon: Cog6ToothIcon },
+  { name: 'User Management', href: '/admin/users', icon: UserCircleIcon },
+  { name: 'System Settings', href: '/admin/settings', icon: Cog6ToothIcon },
+  { name: 'Activity Logs', href: '/admin/logs', icon: ChartBarIcon },
+  { name: 'Batch Operations', href: '/admin/batch', icon: Squares2X2Icon },
+  { name: 'Import/Export', href: '/admin/import-export', icon: ShoppingCartIcon },
+  { name: 'Admin Analytics', href: '/admin/analytics', icon: ChartBarIcon },
 ];
 
 function classNames(...classes: string[]) {
@@ -34,6 +47,26 @@ interface SidebarProps {
 
 export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
   const pathname = usePathname();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const supabase = createClientComponentClient();
+  
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', session.user.id)
+          .single();
+          
+        setIsAdmin(!!profile?.is_admin);
+      }
+    };
+    
+    checkAdminStatus();
+  }, [supabase]);
 
   return (
     <>
@@ -87,7 +120,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                 {/* Sidebar component for mobile */}
                 <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white/80 backdrop-blur-sm px-6 pb-4 shadow-modern-lg">
                   <div className="flex h-16 shrink-0 items-center">
-                    <h1 className="gradient-text text-2xl">Profit Tracker</h1>
+                    <h1 className="gradient-text text-2xl">WalmartApp</h1>
                   </div>
                   <nav className="flex flex-1 flex-col">
                     <ul className="flex flex-1 flex-col gap-y-7">
@@ -117,6 +150,38 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                           ))}
                         </ul>
                       </li>
+                      
+                      {/* Admin Section - Mobile */}
+                      {isAdmin && (
+                        <li>
+                          <div className="text-xs font-semibold leading-6 text-gray-500 mb-1 ml-1">Admin</div>
+                          <ul className="-mx-2 space-y-1">
+                            {adminNavigation.map((item) => (
+                              <li key={item.name}>
+                                <Link
+                                  href={item.href}
+                                  className={classNames(
+                                    pathname === item.href
+                                      ? 'bg-primary-50 text-primary-600'
+                                      : 'text-slate-700 hover:text-primary-600 hover:bg-slate-50',
+                                    'group flex gap-x-3 rounded-lg p-2 text-sm leading-6 font-medium transition-all duration-150'
+                                  )}
+                                >
+                                  <item.icon
+                                    className={classNames(
+                                      pathname === item.href ? 'text-primary-600' : 'text-slate-400 group-hover:text-primary-600',
+                                      'h-5 w-5 shrink-0 transition-colors'
+                                    )}
+                                    aria-hidden="true"
+                                  />
+                                  {item.name}
+                                </Link>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      )}
+                      
                       <li className="mt-auto">
                         <Link
                           href="/profile"
@@ -143,8 +208,8 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
         <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r border-slate-200 bg-white/80 backdrop-blur-sm px-6 pb-4 shadow-modern">
           <div className="flex h-16 shrink-0 items-center">
             <div className="flex items-center space-x-2">
-              <div className="flex items-center justify-center w-8 h-8 rounded-md bg-gradient-to-br from-primary-500 to-accent-500 text-white font-bold">P</div>
-              <h1 className="gradient-text text-xl font-bold">Profit Tracker</h1>
+              <div className="flex items-center justify-center w-8 h-8 rounded-md bg-gradient-to-br from-primary-500 to-accent-500 text-white font-bold">W</div>
+              <h1 className="gradient-text text-xl font-bold">WalmartApp</h1>
             </div>
           </div>
           <nav className="flex flex-1 flex-col">
@@ -156,7 +221,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                       <Link
                         href={item.href}
                         className={classNames(
-                          pathname === item.href
+                          pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href))
                             ? 'bg-primary-50 text-primary-600 shadow-sm'
                             : 'text-slate-700 hover:text-primary-600 hover:bg-slate-50',
                           'group flex gap-x-3 rounded-lg p-2 text-sm leading-6 font-medium transition-all duration-150'
@@ -164,7 +229,9 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                       >
                         <item.icon
                           className={classNames(
-                            pathname === item.href ? 'text-primary-600' : 'text-slate-400 group-hover:text-primary-600',
+                            pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href))
+                              ? 'text-primary-600' 
+                              : 'text-slate-400 group-hover:text-primary-600',
                             'h-5 w-5 shrink-0 transition-colors'
                           )}
                           aria-hidden="true"
@@ -175,6 +242,40 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                   ))}
                 </ul>
               </li>
+              
+              {/* Admin Section - Desktop */}
+              {isAdmin && (
+                <li>
+                  <div className="text-xs font-semibold leading-6 text-gray-500 mb-1 ml-1">Admin</div>
+                  <ul className="-mx-2 space-y-1">
+                    {adminNavigation.map((item) => (
+                      <li key={item.name}>
+                        <Link
+                          href={item.href}
+                          className={classNames(
+                            pathname === item.href || pathname?.startsWith(item.href)
+                              ? 'bg-primary-50 text-primary-600 shadow-sm'
+                              : 'text-slate-700 hover:text-primary-600 hover:bg-slate-50',
+                            'group flex gap-x-3 rounded-lg p-2 text-sm leading-6 font-medium transition-all duration-150'
+                          )}
+                        >
+                          <item.icon
+                            className={classNames(
+                              pathname === item.href || pathname?.startsWith(item.href)
+                                ? 'text-primary-600' 
+                                : 'text-slate-400 group-hover:text-primary-600',
+                              'h-5 w-5 shrink-0 transition-colors'
+                            )}
+                            aria-hidden="true"
+                          />
+                          {item.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              )}
+              
               <li className="mt-auto">
                 <div className="rounded-xl bg-gradient-to-r from-primary-500/10 to-accent-500/10 p-4 mb-4">
                   <h3 className="text-sm font-medium text-primary-700 mb-2">Need Help?</h3>

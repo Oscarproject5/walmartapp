@@ -1,90 +1,91 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { User } from '../lib/types';
 import { toast } from 'react-hot-toast';
 import { User as UserIcon, Store, CreditCard, MapPin, LogOut, Upload, Camera } from 'lucide-react';
+import { useAuth } from '../../context/auth-context';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useRouter } from 'next/navigation';
+import { User } from '@supabase/supabase-js';
+
+// Extended user type for profile data
+interface ExtendedUser extends User {
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  business_type?: string;
+  tax_id?: string;
+  walmart_seller_id?: string;
+  amazon_seller_id?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+  phone?: string;
+  profile_image_url?: string;
+}
 
 export default function ProfilePage() {
+  const { user } = useAuth();
+  const router = useRouter();
   const supabase = createClientComponentClient();
-  const [user, setUser] = useState<User | null>(null);
-  const [authUser, setAuthUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [activeTab, setActiveTab] = useState('personal');
+  const [profileData, setProfileData] = useState<ExtendedUser | null>(null);
 
+  // Fetch additional profile data from the database
   useEffect(() => {
-    fetchUserData();
-  }, []);
+    const fetchProfileData = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-  const fetchUserData = async () => {
-    try {
-      setLoading(true);
-      
-      // Get authenticated user
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      
-      if (authError) {
-        console.error('Auth error:', authError);
-        setMessage({ 
-          type: 'error', 
-          text: 'Authentication error. Please try logging in again.' 
-        });
-        setLoading(false);
-        return;
-      }
-      
-      if (!session?.user) {
-        console.log('No active session found');
-        setMessage({ 
-          type: 'error', 
-          text: 'You need to be logged in to view your profile.' 
-        });
-        setLoading(false);
-        return;
-      }
-      
-      setAuthUser(session.user);
-      
-      // Get user profile
-      const { data: userData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', session.user.email)
-        .single();
-      
-      if (profileError) {
-        // If user doesn't exist yet, create a minimal profile
-        if (profileError.code === 'PGRST116') {
-          const newUser = {
-            email: session.user.email,
-            auth_id: session.user.id
-          };
-          
-          const { data: newUserData, error: createError } = await supabase
-            .from('users')
-            .insert([newUser])
-            .select();
-          
-          if (createError) throw createError;
-          
-          setUser(newUserData?.[0] || null);
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (error) {
+          console.error('Error fetching profile:', error);
         } else {
-          throw profileError;
+          // Merge auth user with profile data
+          setProfileData({ ...user, ...data });
         }
+      } catch (error) {
+        console.error('Error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, [user, supabase]);
+
+  const refreshProfile = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error refreshing profile:', error);
       } else {
-        setUser(userData);
+        // Merge auth user with profile data
+        setProfileData({ ...user, ...data });
       }
     } catch (error) {
-      console.error('Error fetching user data:', error);
-      setMessage({ 
-        type: 'error', 
-        text: 'Failed to load user profile. Please refresh the page.' 
-      });
-    } finally {
-      setLoading(false);
+      console.error('Error:', error);
     }
   };
 
@@ -97,15 +98,15 @@ export default function ProfilePage() {
       const formData = new FormData(e.currentTarget);
       
       // Process form data based on active tab
-      const updates: Partial<User> = {
+      const updates: any = {
         updated_at: new Date().toISOString()
       };
       
       if (activeTab === 'personal') {
         updates.first_name = formData.get('first_name') as string;
         updates.last_name = formData.get('last_name') as string;
-        updates.email = formData.get('email') as string;
         updates.phone = formData.get('phone') as string;
+        // Email is managed by auth and can't be updated here
       } else if (activeTab === 'business') {
         updates.company_name = formData.get('company_name') as string;
         updates.business_type = formData.get('business_type') as string;
@@ -127,7 +128,7 @@ export default function ProfilePage() {
 
       // Update user profile
       const { error } = await supabase
-        .from('users')
+        .from('profiles')
         .update(updates)
         .eq('id', user.id);
 
@@ -138,8 +139,8 @@ export default function ProfilePage() {
         text: 'Profile updated successfully' 
       });
       
-      // Refresh user data
-      fetchUserData();
+      // Refresh profile data
+      await refreshProfile();
       toast.success('Profile updated');
       
     } catch (error) {
@@ -160,7 +161,7 @@ export default function ProfilePage() {
       if (error) throw error;
       
       // Redirect to login page
-      window.location.href = '/login';
+      router.push('/login');
     } catch (error) {
       console.error('Error signing out:', error);
       toast.error('Failed to sign out');
@@ -171,46 +172,82 @@ export default function ProfilePage() {
     try {
       const files = e.target.files;
       if (!files || files.length === 0) {
+        toast.error('No file selected');
         return;
       }
       
       const file = files[0];
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-      const filePath = `profile-images/${fileName}`;
       
-      // Upload image to storage
-      const { error: uploadError } = await supabase.storage
-        .from('user-content')
-        .upload(filePath, file);
+      // Check file size (limit to 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('File size exceeds 2MB limit');
+        return;
+      }
+      
+      // Validate file type
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const validTypes = ['jpg', 'jpeg', 'png', 'gif'];
+      
+      if (!fileExt || !validTypes.includes(fileExt)) {
+        toast.error('Invalid file type. Please upload a JPG, PNG, or GIF image');
+        return;
+      }
+      
+      toast.loading('Processing image...');
+      
+      // Convert image to Base64 instead of using Supabase Storage
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = async () => {
+        const base64Image = reader.result as string;
         
-      if (uploadError) throw uploadError;
-      
-      // Get public URL
-      const { data } = supabase.storage
-        .from('user-content')
-        .getPublicUrl(filePath);
+        if (!base64Image) {
+          toast.dismiss();
+          toast.error('Failed to process image');
+          return;
+        }
         
-      // Update profile with new image URL
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ profile_image_url: data.publicUrl })
-        .eq('id', user?.id);
+        // Update profile with base64 image
+        if (!user) {
+          toast.dismiss();
+          toast.error('User authentication required');
+          return;
+        }
         
-      if (updateError) throw updateError;
+        // Update profile with base64 image data
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ profile_image_url: base64Image })
+          .eq('id', user.id);
+          
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+          toast.dismiss();
+          toast.error(`Failed to update profile: ${updateError.message}`);
+          return;
+        }
+        
+        // Refresh profile data
+        toast.dismiss();
+        toast.success('Profile image updated');
+        await refreshProfile();
+      };
       
-      // Refresh user data
-      fetchUserData();
-      toast.success('Profile image updated');
-      
-    } catch (error) {
+      reader.onerror = (error) => {
+        console.error('Error reading file:', error);
+        toast.dismiss();
+        toast.error('Failed to read image file');
+      };
+    } catch (error: any) {
       console.error('Error uploading image:', error);
-      toast.error('Failed to upload image');
+      toast.dismiss();
+      toast.error(`Upload failed: ${error?.message || 'Unknown error'}`);
     }
   };
 
   // Show login prompt if not authenticated
-  if (!authUser && !loading) {
+  if (!user && !loading) {
     return (
       <div className="py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -264,22 +301,19 @@ export default function ProfilePage() {
             {/* Profile Image */}
             <div className="relative mr-5">
               <div className="h-24 w-24 rounded-full overflow-hidden bg-gray-100 border border-gray-200">
-                {user?.profile_image_url ? (
+                {profileData?.profile_image_url ? (
                   <img 
-                    src={user.profile_image_url} 
+                    src={profileData.profile_image_url} 
                     alt="Profile" 
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center bg-indigo-50 text-indigo-500">
-                    <UserIcon className="h-12 w-12" />
+                  <div className="h-full w-full flex items-center justify-center bg-gray-100">
+                    <UserIcon className="h-12 w-12 text-gray-400" />
                   </div>
                 )}
               </div>
-              <label 
-                htmlFor="profile-image" 
-                className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center cursor-pointer hover:bg-indigo-700"
-              >
+              <label htmlFor="profile-image" className="absolute bottom-0 right-0 flex items-center justify-center h-8 w-8 rounded-full bg-indigo-600 cursor-pointer">
                 <Camera className="h-4 w-4 text-white" />
                 <input 
                   type="file" 
@@ -294,13 +328,13 @@ export default function ProfilePage() {
             {/* User Summary */}
             <div>
               <h2 className="text-lg font-medium text-gray-900">
-                {user?.first_name} {user?.last_name || ''}
+                {profileData?.first_name || ''} {profileData?.last_name || ''}
               </h2>
               <p className="mt-1 text-sm text-gray-500">{user?.email}</p>
-              {user?.company_name && (
+              {profileData?.company_name && (
                 <p className="text-sm text-gray-500 flex items-center mt-1">
                   <Store className="h-4 w-4 mr-1 text-gray-400" />
-                  {user.company_name}
+                  {profileData.company_name}
                 </p>
               )}
             </div>
@@ -358,7 +392,7 @@ export default function ProfilePage() {
                       type="text"
                       name="first_name"
                       id="first_name"
-                      defaultValue={user?.first_name || ''}
+                      defaultValue={profileData?.first_name || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -371,7 +405,7 @@ export default function ProfilePage() {
                       type="text"
                       name="last_name"
                       id="last_name"
-                      defaultValue={user?.last_name || ''}
+                      defaultValue={profileData?.last_name || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -401,7 +435,7 @@ export default function ProfilePage() {
                       type="tel"
                       name="phone"
                       id="phone"
-                      defaultValue={user?.phone || ''}
+                      defaultValue={profileData?.phone || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -418,7 +452,7 @@ export default function ProfilePage() {
                       type="text"
                       name="company_name"
                       id="company_name"
-                      defaultValue={user?.company_name || ''}
+                      defaultValue={profileData?.company_name || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -430,7 +464,7 @@ export default function ProfilePage() {
                     <select
                       id="business_type"
                       name="business_type"
-                      defaultValue={user?.business_type || ''}
+                      defaultValue={profileData?.business_type || ''}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     >
                       <option value="">Select a type</option>
@@ -450,7 +484,7 @@ export default function ProfilePage() {
                       type="text"
                       name="tax_id"
                       id="tax_id"
-                      defaultValue={user?.tax_id || ''}
+                      defaultValue={profileData?.tax_id || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -463,7 +497,7 @@ export default function ProfilePage() {
                       type="text"
                       name="walmart_seller_id"
                       id="walmart_seller_id"
-                      defaultValue={user?.walmart_seller_id || ''}
+                      defaultValue={profileData?.walmart_seller_id || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -476,7 +510,7 @@ export default function ProfilePage() {
                       type="text"
                       name="amazon_seller_id"
                       id="amazon_seller_id"
-                      defaultValue={user?.amazon_seller_id || ''}
+                      defaultValue={profileData?.amazon_seller_id || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -493,7 +527,7 @@ export default function ProfilePage() {
                       type="text"
                       name="address_line1"
                       id="address_line1"
-                      defaultValue={user?.address_line1 || ''}
+                      defaultValue={profileData?.address_line1 || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -506,7 +540,7 @@ export default function ProfilePage() {
                       type="text"
                       name="address_line2"
                       id="address_line2"
-                      defaultValue={user?.address_line2 || ''}
+                      defaultValue={profileData?.address_line2 || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -519,7 +553,7 @@ export default function ProfilePage() {
                       type="text"
                       name="city"
                       id="city"
-                      defaultValue={user?.city || ''}
+                      defaultValue={profileData?.city || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -532,7 +566,7 @@ export default function ProfilePage() {
                       type="text"
                       name="state"
                       id="state"
-                      defaultValue={user?.state || ''}
+                      defaultValue={profileData?.state || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -545,7 +579,7 @@ export default function ProfilePage() {
                       type="text"
                       name="postal_code"
                       id="postal_code"
-                      defaultValue={user?.postal_code || ''}
+                      defaultValue={profileData?.postal_code || ''}
                       className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                     />
                   </div>
@@ -557,7 +591,7 @@ export default function ProfilePage() {
                     <select
                       id="country"
                       name="country"
-                      defaultValue={user?.country || 'United States'}
+                      defaultValue={profileData?.country || 'United States'}
                       className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     >
                       <option value="United States">United States</option>

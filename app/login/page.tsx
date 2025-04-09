@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '../context/auth-context';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,7 +12,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get('redirectUrl') || '/profile';
+  const { signIn, resetPassword } = useAuth();
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,17 +22,14 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+      const { error } = await signIn(email, password);
 
       if (error) {
         throw error;
       }
 
-      // Redirect to profile page after successful login
-      router.push('/profile');
+      // Redirect to the URL they were trying to access, or profile page
+      router.push(redirectUrl);
       router.refresh();
     } catch (error: any) {
       setError(error.message || 'Failed to sign in');
@@ -45,10 +44,7 @@ export default function Login() {
 
     try {
       // Use demo account credentials
-      const { error } = await supabase.auth.signInWithPassword({
-        email: 'demo@example.com',
-        password: 'password123' // This should be the actual password for your demo account
-      });
+      const { error } = await signIn('demo@example.com', 'password123');
 
       if (error) {
         throw error;
@@ -74,9 +70,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const { error } = await resetPassword(email);
 
       if (error) {
         throw error;

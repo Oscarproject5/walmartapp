@@ -1,122 +1,154 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import Link from 'next/link';
 
-interface ProductSummary {
-  totalProducts: number;
-  totalSold: number;
-  topPerformers: {
-    name: string;
-    totalRevenue: number;
-    profitMargin: number;
-  }[];
-  lowPerformers: {
-    name: string;
-    totalRevenue: number;
-    profitMargin: number;
-  }[];
+interface ProductPerformanceSummaryProps {
+  className?: string;
+  refresh?: number;
 }
 
-export default function ProductPerformanceSummary() {
-  const [summary, setSummary] = useState<ProductSummary>({
+interface Product {
+  id: string;
+  name: string;
+  quantity: number;
+  cost_per_item: number;
+  sales_qty?: number;
+  per_qty_price?: number;
+  status: string;
+  salesRate?: number;
+  salesValue?: number;
+}
+
+interface ProductMetrics {
+  totalProducts: number;
+  activeProducts: number;
+  topPerforming: Product[];
+  underPerforming: Product[];
+  totalSalesValue: number;
+  averageSalesRate: number;
+  totalUnitsSold: number;
+}
+
+export default function ProductPerformanceSummary({ className = '', refresh = 0 }: ProductPerformanceSummaryProps) {
+  const [metrics, setMetrics] = useState<ProductMetrics>({
     totalProducts: 0,
-    totalSold: 0,
-    topPerformers: [],
-    lowPerformers: []
+    activeProducts: 0,
+    topPerforming: [] as Product[],
+    underPerforming: [] as Product[],
+    totalSalesValue: 0,
+    averageSalesRate: 0,
+    totalUnitsSold: 0
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+  
+  // Get the current user's ID
   useEffect(() => {
-    fetchProductSummary();
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
   }, []);
 
-  const fetchProductSummary = async () => {
+  useEffect(() => {
+    if (userId) {
+      console.log('ProductPerformanceSummary: User ID available, fetching data...');
+      fetchPerformanceData();
+    }
+  }, [refresh, userId]);
+
+  async function fetchPerformanceData() {
     try {
       setIsLoading(true);
-      setError(null);
-
-      // Fetch order data from the database
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .select('*');
-
-      if (orderError) throw orderError;
-
-      if (!orderData || orderData.length === 0) {
-        setIsLoading(false);
-        return;
+      console.log('ProductPerformanceSummary: Fetching product data from database...');
+      
+      // Fetch products for the current user
+      const { data: products, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('user_id', userId);
+      
+      if (error) throw error;
+      
+      if (products && products.length > 0) {
+        console.log(`ProductPerformanceSummary: Retrieved ${products.length} products from database`);
+        
+        // Calculate performance metrics
+        const totalProducts = products.length;
+        const activeProducts = products.filter(p => p.status === 'active').length;
+        
+        // Calculate total units sold (not sales value)
+        const totalUnitsSold = products.reduce((sum, product) => 
+          sum + (product.sales_qty || 0), 0);
+        
+        // Calculate total sales value (revenue)
+        const totalSalesValue = products.reduce((sum, product) => 
+          sum + ((product.sales_qty || 0) * (product.per_qty_price || product.cost_per_item || 0)), 0);
+        
+        // Calculate average sales rate (items sold per product)
+        const averageSalesRate = totalProducts > 0 ? Math.round((totalUnitsSold / totalProducts) * 100) / 100 : 0;
+        
+        // Find top and under performing products
+        const productsWithSales = products
+          .filter(p => p.quantity > 0 || (p.sales_qty && p.sales_qty > 0))
+          .map(p => ({
+            ...p,
+            salesRate: p.quantity > 0 ? (p.sales_qty || 0) / p.quantity : 0,
+            salesValue: (p.sales_qty || 0) * (p.per_qty_price || p.cost_per_item || 0)
+          }));
+        
+        // Sort by sales value (higher is better) for top performers
+        const sortedBySalesValue = [...productsWithSales]
+          .filter(p => (p.salesValue || 0) > 0)
+          .sort((a, b) => (b.salesValue || 0) - (a.salesValue || 0));
+        
+        // Get top 5 performing products
+        const topPerforming = sortedBySalesValue.slice(0, 5);
+        
+        // Get bottom 5 performing products (with sales > 0, sorted by lowest sales rate)
+        const withSales = productsWithSales.filter(p => (p.sales_qty || 0) > 0);
+        const underPerforming = [...withSales]
+          .sort((a, b) => {
+            const rateA = a.salesRate || 0;
+            const rateB = b.salesRate || 0;
+            return rateA - rateB;
+          })
+          .slice(0, 5);
+        
+        setMetrics({
+          totalProducts,
+          activeProducts,
+          topPerforming,
+          underPerforming,
+          totalSalesValue,
+          averageSalesRate,
+          totalUnitsSold
+        });
+      } else {
+        console.log('ProductPerformanceSummary: No products found for user');
+        setMetrics({
+          totalProducts: 0,
+          activeProducts: 0,
+          topPerforming: [],
+          underPerforming: [],
+          totalSalesValue: 0,
+          averageSalesRate: 0,
+          totalUnitsSold: 0
+        });
       }
-
-      // Create a map to hold product performance data
-      const productMap = new Map();
-      
-      // Process order data
-      orderData.forEach(order => {
-        const sku = order.sku;
-        if (!sku) return;
-        
-        const existingProduct = productMap.get(sku);
-        
-        if (existingProduct) {
-          // Update existing product data
-          existingProduct.totalQuantity += Number(order.order_quantity) || 0;
-          existingProduct.totalRevenue += Number(order.total_revenue) || 0;
-          existingProduct.totalProfit += Number(order.net_profit) || 0;
-        } else {
-          // Create new product entry
-          productMap.set(sku, {
-            sku,
-            name: order.product_name || sku,
-            totalQuantity: Number(order.order_quantity) || 0,
-            totalRevenue: Number(order.total_revenue) || 0,
-            totalProfit: Number(order.net_profit) || 0,
-            profitMargin: 0, // Will calculate below
-          });
-        }
-      });
-      
-      // Calculate profit margins and convert to array
-      const productsArray = Array.from(productMap.values()).map(product => {
-        // Calculate profit margin as percentage
-        product.profitMargin = product.totalRevenue > 0 ? 
-          (product.totalProfit / product.totalRevenue) * 100 : 0;
-        return product;
-      });
-      
-      // Sort by total revenue (descending) for top performers
-      const byRevenue = [...productsArray].sort((a, b) => b.totalRevenue - a.totalRevenue);
-      
-      // Sort by profit margin (descending) for top performers by margin
-      const byMargin = [...productsArray].sort((a, b) => b.profitMargin - a.profitMargin);
-      
-      // Create summary
-      const summaryData = {
-        totalProducts: productsArray.length,
-        totalSold: productsArray.reduce((sum, product) => sum + product.totalQuantity, 0),
-        topPerformers: byRevenue.slice(0, 3).map(p => ({
-          name: p.name,
-          totalRevenue: p.totalRevenue,
-          profitMargin: p.profitMargin
-        })),
-        lowPerformers: byMargin.slice(-3).sort((a, b) => a.profitMargin - b.profitMargin).map(p => ({
-          name: p.name,
-          totalRevenue: p.totalRevenue,
-          profitMargin: p.profitMargin
-        }))
-      };
-      
-      setSummary(summaryData);
-    } catch (err) {
-      console.error('Error fetching product summary:', err);
-      setError('Could not load product performance data');
+    } catch (error) {
+      console.error('Error fetching product performance data:', error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
   if (isLoading) {
     return (
@@ -126,15 +158,7 @@ export default function ProductPerformanceSummary() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="text-center py-8 bg-white/60 rounded-lg shadow-sm">
-        <p className="font-medium text-red-600">{error}</p>
-      </div>
-    );
-  }
-
-  if (summary.totalProducts === 0) {
+  if (metrics.totalProducts === 0) {
     return (
       <div className="text-center py-8 bg-white/60 rounded-lg shadow-sm">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-slate-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -153,11 +177,11 @@ export default function ProductPerformanceSummary() {
           <h3 className="text-md font-semibold text-slate-800 mb-2">Overview</h3>
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm text-slate-600">Total Products</span>
-            <span className="font-medium">{summary.totalProducts}</span>
+            <span className="font-medium">{metrics.totalProducts}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-slate-600">Total Units Sold</span>
-            <span className="font-medium">{summary.totalSold}</span>
+            <span className="font-medium">{Math.round(metrics.totalUnitsSold)}</span>
           </div>
         </div>
         
@@ -179,23 +203,23 @@ export default function ProductPerformanceSummary() {
             <h3 className="text-sm font-medium text-green-800">Top Revenue Performers</h3>
           </div>
           <ul className="divide-y divide-gray-200">
-            {summary.topPerformers.map((product, index) => (
+            {metrics.topPerforming.map((product, index) => (
               <li key={index} className="px-4 py-2">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-800 truncate max-w-[180px]" title={product.name}>
                     {product.name}
                   </span>
-                  <span className="text-sm font-medium text-slate-800">{formatCurrency(product.totalRevenue)}</span>
+                  <span className="text-sm font-medium text-slate-800">{formatCurrency(Number(product.salesValue || 0))}</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
-                  <span className="text-xs text-slate-500">Profit Margin</span>
-                  <span className={`text-xs ${product.profitMargin >= 20 ? 'text-green-600' : product.profitMargin >= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
-                    {product.profitMargin.toFixed(1)}%
+                  <span className="text-xs text-slate-500">Sales Rate</span>
+                  <span className={`text-xs ${(product.salesRate || 0) >= 0.5 ? 'text-green-600' : (product.salesRate || 0) >= 0.25 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    {(product.salesRate || 0).toFixed(2)}
                   </span>
                 </div>
               </li>
             ))}
-            {summary.topPerformers.length === 0 && (
+            {metrics.topPerforming.length === 0 && (
               <li className="px-4 py-3 text-center text-sm text-slate-500">
                 No data available
               </li>
@@ -209,21 +233,21 @@ export default function ProductPerformanceSummary() {
             <h3 className="text-sm font-medium text-yellow-800">Products Needing Attention</h3>
           </div>
           <ul className="divide-y divide-gray-200">
-            {summary.lowPerformers.map((product, index) => (
+            {metrics.underPerforming.map((product, index) => (
               <li key={index} className="px-4 py-2">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-800 truncate max-w-[180px]" title={product.name}>
                     {product.name}
                   </span>
-                  <span className="text-xs text-red-600 font-medium">{product.profitMargin.toFixed(1)}% margin</span>
+                  <span className="text-xs text-red-600 font-medium">{(product.salesRate || 0).toFixed(2)} sales rate</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
-                  <span className="text-xs text-slate-500">Revenue</span>
-                  <span className="text-xs text-slate-700">{formatCurrency(product.totalRevenue)}</span>
+                  <span className="text-xs text-slate-500">Sales Value</span>
+                  <span className="text-xs text-slate-700">{formatCurrency(Number(product.salesValue || 0))}</span>
                 </div>
               </li>
             ))}
-            {summary.lowPerformers.length === 0 && (
+            {metrics.underPerforming.length === 0 && (
               <li className="px-4 py-3 text-center text-sm text-slate-500">
                 No data available
               </li>
