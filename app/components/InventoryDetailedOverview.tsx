@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
+import logger from '../utils/logger';
 
 interface InventoryDetailedOverviewProps {
   className?: string;
@@ -87,7 +88,7 @@ export default function InventoryDetailedOverview({ className = '', refresh = 0 
         setMetrics(newMetrics);
       }
     } catch (error) {
-      console.error('Error fetching inventory metrics:', error);
+      logger.error('Error fetching inventory metrics:', error);
     } finally {
       setIsLoading(false);
     }

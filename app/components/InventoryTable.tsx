@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import ColumnMappingModal from './ColumnMappingModal';
 import AddInventoryItemModal from './AddInventoryItemModal';
 import EditInventoryItemModal from './EditInventoryItemModal';
+import logger from '../utils/logger';
 
 interface InventoryTableProps {
   className?: string;
@@ -138,6 +139,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Update the useEffect to reset pagination when inventory changes
   useEffect(() => {
+    logger.log(`Refreshing inventory (${refresh})`);
     if (userId) {
       console.log('InventoryTable: User ID available, fetching data...');
       fetchInventory();
@@ -325,6 +327,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Function to handle actual deletion
   const handleDelete = async () => {
+    logger.log(`Attempting to delete product with ID: ${deleteItemId}`);
     if (!deleteItemId || !userId) return;
     
     try {
@@ -359,7 +362,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
       }
       
     } catch (error) {
-      console.error('Error deleting item:', error);
+      logger.error('Error deleting item:', error);
       setError('Failed to delete the item. Please try again.');
     } finally {
       setIsDeleting(false);

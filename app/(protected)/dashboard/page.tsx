@@ -9,6 +9,7 @@ import ProductPerformanceSummary from '../../components/ProductPerformanceSummar
 import InventoryManagement from '../../components/InventoryManagement';
 import { calculateProfitBreakdown, ProfitBreakdown, Sale, CanceledOrder, formatCurrency } from '../../utils/calculations';
 import { processSalesData, aggregateMonthlyData } from '../../utils/reports';
+import logger from '../../utils/logger';
 
 // Replace all sample data arrays with empty arrays
 const SAMPLE_SALES: Sale[] = [];
@@ -64,7 +65,7 @@ export default function Dashboard() {
   // Update the fetchDashboardData function to not use sample data
   const fetchDashboardData = async () => {
     if (!userId) {
-      console.error('No user ID available');
+      logger.error('No user ID available');
       return { 
         salesData: [], 
         productsData: [], 
@@ -127,7 +128,7 @@ export default function Dashboard() {
       
       return { salesData, productsData, canceledData, settings };
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      logger.error('Error fetching dashboard data:', error);
       
       // Return empty data instead of sample data
       setUsingSampleData(false);
@@ -227,12 +228,12 @@ export default function Dashboard() {
         
         // Use orders data if sales table is empty
         if (salesData.length === 0 && ordersData && ordersData.length > 0) {
-          console.log(`Using ${ordersData.length} orders as sales data`);
+          logger.log(`Using ${ordersData.length} orders as sales data`);
           salesData = salesFromOrders;
         }
         
       } catch (dbError) {
-        console.warn('Database connection failed, using sample data:', dbError);
+        logger.warn('Database connection failed, using sample data:', dbError);
         useBackupData = true;
         setUsingSampleData(true);
       }
@@ -281,7 +282,7 @@ export default function Dashboard() {
       });
       setProfitBreakdown(breakdown || null);
     } catch (err) {
-      console.error('Error loading dashboard data:', err);
+      logger.error('Error loading dashboard data:', err);
       setError('Failed to load dashboard data. Please try again later.');
       
       // Set default values for all state variables to prevent undefined errors

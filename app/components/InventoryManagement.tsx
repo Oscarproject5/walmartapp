@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 import { formatCurrency } from '../utils/calculations';
+import logger from '../utils/logger';
 
 interface InventoryManagementProps {
   className?: string;
@@ -33,7 +34,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
 
   useEffect(() => {
     if (userId) {
-      console.log('InventoryManagement: User ID available, fetching data...');
+      logger.info('InventoryManagement: User ID available, fetching data...');
       fetchInventory();
     }
   }, [refresh, userId]);
@@ -42,7 +43,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
     try {
       setIsLoading(true);
       setError(null);
-      console.log('InventoryManagement: Fetching inventory data from database...');
+      logger.info('InventoryManagement: Fetching inventory data from database...');
       
       // Fetch products for the current user
       const { data, error } = await supabase
@@ -55,7 +56,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
       if (error) throw error;
       
       if (data) {
-        console.log(`InventoryManagement: Retrieved ${data.length} products from database`);
+        logger.info(`InventoryManagement: Retrieved ${data.length} products from database`);
         
         // Add health status for each product (example logic - you can adjust as needed)
         const productsWithHealth = data.map(product => {
@@ -83,8 +84,8 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
         setInventory(productsWithHealth);
       }
     } catch (err) {
-      console.error('Error fetching inventory:', err);
-      setError('Failed to load inventory data');
+      logger.error('Error loading inventory data:', err);
+      setError('Failed to load inventory data. Please refresh and try again.');
     } finally {
       setIsLoading(false);
     }

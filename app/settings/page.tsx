@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { Database } from '../lib/supabase';
+import logger from '../utils/logger';
 
 type AppSettings = Database['public']['Tables']['app_settings']['Row'];
 
@@ -30,7 +31,7 @@ export default function SettingsPage() {
           setIsLoading(false);
         }
       } catch (error) {
-        console.error('Authentication error:', error);
+        logger.error('Authentication error:', error);
         setMessage({ type: 'error', text: 'Authentication failed. Please log in again.' });
         setIsLoading(false);
       }
@@ -61,7 +62,7 @@ export default function SettingsPage() {
         user_id: uid,
       });
     } catch (error) {
-      console.error('Error loading settings:', error);
+      logger.error('Error loading settings:', error);
       setMessage({ type: 'error', text: 'Failed to load settings' });
     } finally {
       setIsLoading(false);
@@ -113,7 +114,7 @@ export default function SettingsPage() {
       setMessage({ type: 'success', text: 'Settings saved successfully' });
       loadSettings(userId);
     } catch (error) {
-      console.error('Error saving settings:', error);
+      logger.error('Error saving settings:', error);
       setMessage({ type: 'error', text: 'Failed to save settings' });
     } finally {
       setIsSaving(false);

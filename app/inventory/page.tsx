@@ -6,6 +6,7 @@ import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
 import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
+import logger from '../utils/logger';
 
 export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
@@ -27,17 +28,17 @@ export default function InventoryPage() {
 
   // Function to trigger a refresh of all inventory components
   const refreshInventory = () => {
-    console.log('InventoryPage: Triggering inventory refresh...');
+    logger.log('InventoryPage: Triggering inventory refresh...');
     setRefreshCounter(prev => {
       const newCounter = prev + 1;
-      console.log(`InventoryPage: Refresh counter updated to ${newCounter}`);
+      logger.log(`InventoryPage: Refresh counter updated to ${newCounter}`);
       return newCounter;
     });
   };
   
   // Handle item update
   const handleItemUpdated = () => {
-    console.log('InventoryPage: Item updated, refreshing inventory...');
+    logger.log('InventoryPage: Item updated, refreshing inventory...');
     refreshInventory();
     // Clear the URL parameter
     if (typeof window !== 'undefined') {
