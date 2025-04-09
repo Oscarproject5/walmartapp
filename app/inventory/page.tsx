@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
@@ -8,7 +8,8 @@ import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
 import logger from '../utils/logger';
 
-export default function InventoryPage() {
+// Wrapper component that uses useSearchParams
+function InventoryContent() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editItemId, setEditItemId] = useState<string | null>(null);
@@ -130,5 +131,18 @@ export default function InventoryPage() {
         itemId={editItemId}
       />
     </div>
+  );
+}
+
+// Main component with Suspense boundary
+export default function InventoryPage() {
+  return (
+    <Suspense fallback={
+      <div className="container mx-auto px-4 py-6 flex justify-center">
+        <div className="animate-pulse text-lg">Loading inventory...</div>
+      </div>
+    }>
+      <InventoryContent />
+    </Suspense>
   );
 } 
