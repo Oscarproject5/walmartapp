@@ -8,7 +8,7 @@ import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
 import logger from '../utils/logger';
 
-// Wrapper component that uses useSearchParams
+// Create a client component that uses useSearchParams
 function InventoryContent() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -134,14 +134,10 @@ function InventoryContent() {
   );
 }
 
-// Main component with Suspense boundary
+// Main page component with Suspense boundary
 export default function InventoryPage() {
   return (
-    <Suspense fallback={
-      <div className="container mx-auto px-4 py-6 flex justify-center">
-        <div className="animate-pulse text-lg">Loading inventory...</div>
-      </div>
-    }>
+    <Suspense fallback={<div className="p-4 text-center">Loading inventory...</div>}>
       <InventoryContent />
     </Suspense>
   );
