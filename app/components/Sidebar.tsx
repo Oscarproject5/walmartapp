@@ -280,9 +280,9 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
                 <div className="rounded-xl bg-gradient-to-r from-primary-500/10 to-accent-500/10 p-4 mb-4">
                   <h3 className="text-sm font-medium text-primary-700 mb-2">Need Help?</h3>
                   <p className="text-xs text-slate-600 mb-3">View documentation or contact support for assistance</p>
-                  <a href="#" className="text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors">
+                  <Link href="/documentation" className="text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors">
                     View Documentation →
-                  </a>
+                  </Link>
                 </div>
                 <Link
                   href="/profile"
