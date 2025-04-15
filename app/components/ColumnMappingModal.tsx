@@ -41,6 +41,7 @@ export default function ColumnMappingModal({
     { label: 'IMAGE', key: 'image_url' },
     { label: 'SUPPLIER', key: 'supplier' },
     { label: 'LINK', key: 'product_link' },
+    { label: 'PURCHASE DATE', key: 'purchase_date' },
     { label: 'PURCHASE QTY', key: 'quantity' },
     { label: 'SALES QTY', key: 'sales_qty' },
     { label: 'AVAILABLE STOCK', key: 'available_qty' },
@@ -153,6 +154,8 @@ export default function ColumnMappingModal({
                     field.key === 'available_qty' || field.key === 'per_qty_price' || 
                     field.key === 'stock_value') {
             mappedRow[field.key] = 0;
+          } else if (field.key === 'purchase_date') {
+            mappedRow[field.key] = new Date().toISOString();
           } else {
             mappedRow[field.key] = null;
           }
@@ -193,6 +196,38 @@ export default function ColumnMappingModal({
               // Map AVAILABLE to active
               if (value === 'available') {
                 value = 'active';
+              }
+            }
+            
+            // Handle purchase_date field
+            if (targetField === 'purchase_date') {
+              try {
+                // If value is null or undefined, use current date
+                if (value === null || value === undefined || value === '') {
+                  value = new Date().toISOString();
+                } else if (typeof value === 'number') {
+                  // Excel date serial number
+                  const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+                  if (!isNaN(date.getTime())) {
+                    value = date.toISOString();
+                  } else {
+                    value = new Date().toISOString();
+                  }
+                } else if (typeof value === 'string') {
+                  // If it's a date string, parse it and format as ISO
+                  const date = new Date(value);
+                  if (!isNaN(date.getTime())) {
+                    value = date.toISOString();
+                  } else {
+                    value = new Date().toISOString();
+                  }
+                } else {
+                  value = new Date().toISOString();
+                }
+              } catch (e) {
+                // If parsing fails, use current date
+                console.error('Error parsing date:', e);
+                value = new Date().toISOString();
               }
             }
             
@@ -315,6 +350,38 @@ export default function ColumnMappingModal({
               // Map AVAILABLE to active
               if (value === 'available') {
                 value = 'active';
+              }
+            }
+            
+            // Handle purchase_date field
+            if (targetField === 'purchase_date') {
+              try {
+                // If value is null or undefined, use current date
+                if (value === null || value === undefined || value === '') {
+                  value = new Date().toISOString();
+                } else if (typeof value === 'number') {
+                  // Excel date serial number
+                  const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+                  if (!isNaN(date.getTime())) {
+                    value = date.toISOString();
+                  } else {
+                    value = new Date().toISOString();
+                  }
+                } else if (typeof value === 'string') {
+                  // If it's a date string, parse it and format as ISO
+                  const date = new Date(value);
+                  if (!isNaN(date.getTime())) {
+                    value = date.toISOString();
+                  } else {
+                    value = new Date().toISOString();
+                  }
+                } else {
+                  value = new Date().toISOString();
+                }
+              } catch (e) {
+                // If parsing fails, use current date
+                console.error('Error parsing date:', e);
+                value = new Date().toISOString();
               }
             }
             

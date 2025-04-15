@@ -8,7 +8,6 @@ import { formatCurrency } from '../lib/utils';
 import ExcelColumnMapper from '../components/ExcelColumnMapper';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
-import logger from '../utils/logger';
 
 // Define interface for shipping settings
 interface ShippingSettings {
@@ -141,19 +140,19 @@ export default function NewOrdersClient() {
         const { data: userData, error: authError } = await supabase.auth.getUser();
         
         if (authError) {
-          logger.error('Authentication error:', authError);
+          console.error('Authentication error:', authError);
           throw new Error(`Authentication failed: ${authError.message || 'Unknown error'}`);
         }
         
         const userId = userData?.user?.id;
-        logger.log('Current user ID:', userId);
+        console.log('Current user ID:', userId);
 
         if (!userId) {
           throw new Error('No authenticated user found');
         }
 
         // Test if user_id column exists before querying with it
-        logger.log('Fetching orders with user_id:', userId);
+        console.log('Fetching orders with user_id:', userId);
         const { data, error } = await supabase
           .from('orders')
           .select('*')
@@ -162,20 +161,20 @@ export default function NewOrdersClient() {
 
         // Log detailed error information
         if (error) {
-          logger.error('Supabase query error:', error);
-          logger.error('Error details:', JSON.stringify(error));
+          console.error('Supabase query error:', error);
+          console.error('Error details:', JSON.stringify(error));
           throw error;
         }
 
-        logger.log(`Successfully fetched ${data?.length || 0} orders`);
+        console.log(`Successfully fetched ${data?.length || 0} orders`);
         setOrders(data || []);
         setFilteredOrders(data || []);
       } catch (err: any) {
         const errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-        logger.error('Error fetching orders:', err);
-        logger.error('Error type:', typeof err);
-        logger.error('Error message:', errorMessage);
-        logger.error('Error stack:', err?.stack);
+        console.error('Error fetching orders:', err);
+        console.error('Error type:', typeof err);
+        console.error('Error message:', errorMessage);
+        console.error('Error stack:', err?.stack);
         setError(`Failed to load orders: ${errorMessage}`);
       } finally {
         setIsLoading(false);
@@ -199,16 +198,16 @@ export default function NewOrdersClient() {
         }
         
         if (data && data.length > 0) {
-          logger.log('Loaded shipping settings:', data[0]);
+          console.log('Loaded shipping settings:', data[0]);
           setShippingSettings({
             shipping_base_cost: data[0].shipping_base_cost || 1.75,
             label_cost: data[0].label_cost || 2.25
           });
         } else {
-          logger.log('No settings found, using defaults');
+          console.log('No settings found, using defaults');
         }
       } catch (err) {
-        logger.error('Error fetching shipping settings:', err);
+        console.error('Error fetching shipping settings:', err);
       }
     };
     
@@ -222,7 +221,7 @@ export default function NewOrdersClient() {
         schema: 'public', 
         table: 'app_settings' 
       }, (payload) => {
-        logger.log('App settings changed:', payload);
+        console.log('App settings changed:', payload);
         
         // Update shipping settings when changes occur
         if (payload.new) {
@@ -306,7 +305,7 @@ export default function NewOrdersClient() {
     setSkippedDuplicates(0); // Reset skipped duplicates counter
     
     try {
-      logger.log("Mapped data received:", mappedData);
+      console.log("Mapped data received:", mappedData);
       
       // Validate order_id field exists in all rows
       const missingOrderIds = mappedData.filter(row => !row.order_id);
@@ -324,7 +323,7 @@ export default function NewOrdersClient() {
         .in('order_id', orderIds);
         
       if (orderCheckError) {
-        logger.error("Error checking for duplicate orders:", orderCheckError);
+        console.error("Error checking for duplicate orders:", orderCheckError);
       } else if (existingOrders && existingOrders.length > 0) {
         // Create a set of existing order IDs for quick lookup
         const existingOrderIdSet = new Set(existingOrders.map(o => o.order_id));
@@ -342,7 +341,7 @@ export default function NewOrdersClient() {
         setSkippedDuplicates(skippedCount);
         
         if (skippedCount > 0) {
-          logger.log(`Skipped ${skippedCount} duplicate orders based on order_id`);
+          console.log(`Skipped ${skippedCount} duplicate orders based on order_id`);
           
           // Update the mappedData reference with filtered data
           mappedDataRef.current = filteredData;
@@ -407,14 +406,14 @@ export default function NewOrdersClient() {
       
       // If there are missing SKUs, show a warning and offer to create products
       if (invalidRows.length > 0) {
-        logger.warn(`Found ${invalidRows.length} orders with SKUs that don't exist in the products table:`, 
+        console.warn(`Found ${invalidRows.length} orders with SKUs that don't exist in the products table:`, 
           invalidRows.map(r => r.sku));
         
         // Get unique missing SKUs (remove duplicates and normalize case)
         const uniqueMissingSkus = Array.from(
           new Set(invalidRows.map(r => r.sku.toUpperCase()))
         );
-        logger.log(`Unique missing SKUs: ${uniqueMissingSkus.length}`, uniqueMissingSkus);
+        console.log(`Unique missing SKUs: ${uniqueMissingSkus.length}`, uniqueMissingSkus);
           
         // Store missing SKUs and show warning
         setMissingSkus(uniqueMissingSkus);
@@ -427,7 +426,7 @@ export default function NewOrdersClient() {
       await processMappedData();
       
     } catch (error: any) {
-      logger.error("Error handling mapped data:", error);
+      console.error("Error handling mapped data:", error);
       toast.error(`Import error: ${error.message || 'Unknown error occurred'}`);
       setIsImporting(false);
     }
@@ -471,7 +470,7 @@ export default function NewOrdersClient() {
       
       // If all SKUs already exist, just proceed with import
       if (skusToCreate.length === 0) {
-        logger.log('All SKUs already exist in the database, proceeding with import');
+        console.log('All SKUs already exist in the database, proceeding with import');
         setMissingSkus([]);
         setShowMissingSkusWarning(false);
         await processMappedData();
@@ -502,9 +501,9 @@ export default function NewOrdersClient() {
       // Proceed with import after creating products
       await processMappedData();
     } catch (err: any) {
-      logger.error('Error creating missing products:', err);
-      toast.error('Failed to create missing products');
-    } finally {
+      console.error('Error creating missing products:', err);
+      const errorMessage = err.message || 'Unknown error occurred';
+      toast.error(`Failed to create missing products: ${errorMessage}`);
       setIsImporting(false);
     }
   };
@@ -545,7 +544,7 @@ export default function NewOrdersClient() {
         .select('order_id');
         
       if (orderFetchError) {
-        logger.error("Pre-insert Fetch Error: Could not get existing order IDs:", orderFetchError);
+        console.error("Pre-insert Fetch Error: Could not get existing order IDs:", orderFetchError);
         // Decide if we should proceed or throw error
       }
       const existingOrderIdSet = new Set(existingOrdersData?.map(o => o.order_id) || []);
@@ -556,7 +555,7 @@ export default function NewOrdersClient() {
         .select('product_sku, cost_per_item, name, per_qty_price');
         
       if (productFetchError) {
-        logger.error("Pre-insert Fetch Error: Could not get product data:", productFetchError);
+        console.error("Pre-insert Fetch Error: Could not get product data:", productFetchError);
         throw new Error("Failed to fetch product data for validation.");
       }
       const productMap = new Map();
@@ -628,7 +627,7 @@ export default function NewOrdersClient() {
       // If validation errors occurred, report them and stop
       if (validationErrors.length > 0) {
         const errorMsg = `${validationErrors.length} rows had validation errors and will be skipped: ${validationErrors.slice(0, 5).join('; ')}${validationErrors.length > 5 ? '...' : ''}`;
-        logger.error("Validation Errors:", validationErrors);
+        console.error("Validation Errors:", validationErrors);
         
         // Don't stop the import if there are still valid rows, just show a warning
         if (rowsToInsert.length > 0) {
@@ -666,14 +665,14 @@ export default function NewOrdersClient() {
       // Insert rows one by one for better error isolation
       for (const [index, rowToInsert] of rowsToInsert.entries()) {
         try {
-          logger.log(`Attempting to insert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
+          console.log(`Attempting to insert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
           const { error: insertError } = await supabase
             .from('orders')
             .insert([rowToInsert]);
             
           if (insertError) {
-            logger.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
-            logger.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
+            console.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
+            console.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
             errorCount++;
             insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
           } else {
@@ -685,8 +684,8 @@ export default function NewOrdersClient() {
             }
           }
         } catch (err: any) {
-          logger.error(`Exception inserting row (Order ID: ${rowToInsert.order_id}):`, err);
-          logger.error(`Full Insert Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2)); // Log full exception object
+          console.error(`Exception inserting row (Order ID: ${rowToInsert.order_id}):`, err);
+          console.error(`Full Insert Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2)); // Log full exception object
           errorCount++;
           insertErrors.push(`Order ID ${rowToInsert.order_id}: ${err.message || 'Unknown exception'}`);
         }
@@ -696,7 +695,7 @@ export default function NewOrdersClient() {
       
       // Update inventory SALES QTY for each affected product
       if (skuQuantityMap.size > 0) {
-        logger.log("Updating inventory sales quantities:", Object.fromEntries(skuQuantityMap));
+        console.log("Updating inventory sales quantities:", Object.fromEntries(skuQuantityMap));
         
         // Perform updates for each SKU
         for (const [sku, quantity] of skuQuantityMap.entries()) {
@@ -709,7 +708,7 @@ export default function NewOrdersClient() {
               .single();
               
             if (fetchError) {
-              logger.error(`Error fetching current sales_qty for ${sku}:`, fetchError);
+              console.error(`Error fetching current sales_qty for ${sku}:`, fetchError);
               continue;
             }
             
@@ -724,12 +723,12 @@ export default function NewOrdersClient() {
               .eq('product_sku', sku);
               
             if (updateError) {
-              logger.error(`Error updating sales_qty for ${sku}:`, updateError);
+              console.error(`Error updating sales_qty for ${sku}:`, updateError);
             } else {
-              logger.log(`Updated sales_qty for ${sku}: ${currentSalesQty} + ${quantity} = ${newSalesQty}`);
+              console.log(`Updated sales_qty for ${sku}: ${currentSalesQty} + ${quantity} = ${newSalesQty}`);
             }
           } catch (err) {
-            logger.error(`Error processing sales_qty update for ${sku}:`, err);
+            console.error(`Error processing sales_qty update for ${sku}:`, err);
           }
         }
       }
@@ -779,7 +778,7 @@ export default function NewOrdersClient() {
       }      
       
     } catch (err: any) {
-      logger.error('Error processing orders:', err);
+      console.error('Error processing orders:', err);
       setError(`Failed to import orders: ${err.message || JSON.stringify(err)}`);
       toast.error('Failed to import orders. Please try again.');
     } finally {
@@ -811,7 +810,7 @@ export default function NewOrdersClient() {
         .limit(1000);
       
       if (fetchError) {
-        logger.error('Error fetching orders for deletion:', fetchError);
+        console.error('Error fetching orders for deletion:', fetchError);
         throw new Error(fetchError.message || 'Failed to fetch orders for deletion');
       }
       
@@ -825,7 +824,7 @@ export default function NewOrdersClient() {
         return;
       }
       
-      logger.log(`Found ${orderIds.length} orders to delete`);
+      console.log(`Found ${orderIds.length} orders to delete`);
       
       // Delete orders in smaller batches to avoid timeout/permission issues
       const batchSize = 25;
@@ -834,7 +833,7 @@ export default function NewOrdersClient() {
       
       for (let i = 0; i < orderIds.length; i += batchSize) {
         const batchIds = orderIds.slice(i, i + batchSize).map(o => o.order_id);
-        logger.log(`Deleting batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(orderIds.length/batchSize)}, size: ${batchIds.length}`);
+        console.log(`Deleting batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(orderIds.length/batchSize)}, size: ${batchIds.length}`);
         
         try {
           // Add a small delay between batches to prevent overloading the database
@@ -848,24 +847,24 @@ export default function NewOrdersClient() {
             .in('order_id', batchIds);
           
           if (deleteError) {
-            logger.error(`Error deleting batch ${Math.floor(i/batchSize) + 1}:`, deleteError);
+            console.error(`Error deleting batch ${Math.floor(i/batchSize) + 1}:`, deleteError);
             
             // Try to get more detailed error info
             const errorDetails = typeof deleteError === 'object' ? 
               JSON.stringify(deleteError) : 'Unknown error';
               
-            logger.error(`Error details: ${errorDetails}`);
+            console.error(`Error details: ${errorDetails}`);
             errorCount += batchIds.length;
           } else {
             deletedCount += batchIds.length;
           }
         } catch (batchError) {
-          logger.error(`Exception in batch ${Math.floor(i/batchSize) + 1}:`, batchError);
+          console.error(`Exception in batch ${Math.floor(i/batchSize) + 1}:`, batchError);
           errorCount += batchIds.length;
         }
       }
       
-      logger.log(`Deletion complete. Deleted: ${deletedCount}, Errors: ${errorCount}`);
+      console.log(`Deletion complete. Deleted: ${deletedCount}, Errors: ${errorCount}`);
       
       if (deletedCount > 0) {
         // Show success message
@@ -893,7 +892,7 @@ export default function NewOrdersClient() {
             setOrders(data || []);
             setFilteredOrders(data || []);
           } catch (err: any) {
-            logger.error('Error fetching orders:', err);
+            console.error('Error fetching orders:', err);
             setError('Failed to load orders. Please try again.');
           }
         };
@@ -910,7 +909,7 @@ export default function NewOrdersClient() {
       }, 2000);
       
     } catch (error) {
-      logger.error('Error clearing orders:', error);
+      console.error('Error clearing orders:', error);
       
       // Handle different error types properly
       let errorMessage = 'Failed to clear orders';
@@ -959,10 +958,10 @@ export default function NewOrdersClient() {
         return;
       }
       
-      logger.log("Fetched batch data:", data);
+      console.log("Fetched batch data:", data);
       setBatchData(data);
     } catch (err: any) {
-      logger.error("Error fetching batch data:", err);
+      console.error("Error fetching batch data:", err);
       setBatchError(err.message || "Failed to fetch batch data");
     } finally {
       setIsFetchingBatches(false);
@@ -1007,7 +1006,7 @@ export default function NewOrdersClient() {
       
       toast.success('Batch deleted successfully');
     } catch (err: any) {
-      logger.error('Error deleting batch:', err);
+      console.error('Error deleting batch:', err);
       setBatchError(err.message || 'Failed to delete batch');
       toast.error('Failed to delete batch. Please try again.');
     } finally {

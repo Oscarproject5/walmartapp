@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../context/auth-context';
 
-// Create a client component that uses useSearchParams
-function LoginContent() {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -200,14 +199,5 @@ function LoginContent() {
         </form>
       </div>
     </div>
-  );
-}
-
-// Main page component with Suspense boundary
-export default function Login() {
-  return (
-    <Suspense fallback={<div className="p-4 text-center">Loading login page...</div>}>
-      <LoginContent />
-    </Suspense>
   );
 } 

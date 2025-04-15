@@ -20,45 +20,6 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Quick Start with Database Setup
-
-For convenience, you can use the included setup script that will automatically:
-1. Check and set up the Supabase database schema
-2. Launch the application
-
-Simply run:
-```bash
-# On Windows
-start-with-setup.bat
-
-# On Mac/Linux
-node setup-and-start.js
-```
-
-If you don't have admin access to your Supabase database, the script will guide you through manual setup.
-
-## Database Schema Updates
-
-The Supabase schema is defined in the following files:
-- `supabase-schema.sql` - Main schema file with all tables and functions
-- `migrations/*.sql` - Individual migration files for incremental updates
-
-When updates are made to the schema:
-
-1. **Automatic Method** - Run the setup script which will detect and apply changes:
-   ```bash
-   npm run setup
-   ```
-
-2. **Manual Method** - Apply the schema manually through the Supabase dashboard:
-   - Log in to your Supabase dashboard
-   - Go to SQL Editor
-   - Click "New Query"
-   - Copy and paste the contents of `supabase-schema.sql`
-   - Click "Run" to execute the SQL commands
-
-The schema is up-to-date as of the most recent commit and includes all necessary tables, functions, and RLS policies.
-
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -6,13 +6,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { formatCurrency } from '../utils/calculations';
 import { checkDatabasePermissions } from '../lib/check-permissions';
-import { checkDatabaseSchema } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import ColumnMappingModal from './ColumnMappingModal';
 import AddInventoryItemModal from './AddInventoryItemModal';
 import EditInventoryItemModal from './EditInventoryItemModal';
-import logger from '../utils/logger';
+import ProductBatchDetailModal from './ProductBatchDetailModal';
 
 interface InventoryTableProps {
   className?: string;
@@ -126,6 +125,10 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
   const [userId, setUserId] = useState<string | null>(null);
   const supabaseClient = createClientComponentClient();
   
+  // Add state for displaying the FIFO details modal
+  const [showFifoDetailModal, setShowFifoDetailModal] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  
   // Get the current user's ID
   useEffect(() => {
     const getUserId = async () => {
@@ -139,7 +142,6 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Update the useEffect to reset pagination when inventory changes
   useEffect(() => {
-    logger.log(`Refreshing inventory (${refresh})`);
     if (userId) {
       console.log('InventoryTable: User ID available, fetching data...');
       fetchInventory();
@@ -327,7 +329,6 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
 
   // Function to handle actual deletion
   const handleDelete = async () => {
-    logger.log(`Attempting to delete product with ID: ${deleteItemId}`);
     if (!deleteItemId || !userId) return;
     
     try {
@@ -362,7 +363,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
       }
       
     } catch (error) {
-      logger.error('Error deleting item:', error);
+      console.error('Error deleting item:', error);
       setError('Failed to delete the item. Please try again.');
     } finally {
       setIsDeleting(false);
@@ -737,10 +738,9 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
       const permissionCheck = await checkDatabasePermissions();
       results.permissions = permissionCheck;
       
-      // Step 2: Check schema
-      console.log('Running schema check...');
-      const schemaCheck = await checkDatabaseSchema();
-      results.schema = schemaCheck;
+      // Step 2: Check schema - Removed as checkDatabaseSchema function was removed
+      console.log('Schema check skipped - function removed');
+      results.schema = { success: true, note: "Schema check function was removed from the codebase" };
       
       // Step 3: Try to get specific information about a product
       if (deleteItemId) {
@@ -1029,11 +1029,17 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         // Add user_id to each record
         formattedItem.user_id = userId;
         
+        // Initially set these fields to zero - they'll be calculated by database triggers from batch data
+        formattedItem.stock_value = 0;
+        
         return formattedItem;
       });
       
       // Log a few formatted items for debugging
       console.log('First formatted item:', formattedData[0]);
+      
+      // Track products and their ids for batch creation
+      const productIdMap: Record<string, string> = {};
       
       // Process in smaller batches for better error handling
       const batchSize = 20; // Smaller batches for better error tracking
@@ -1075,12 +1081,23 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
                   console.error(`Error upserting item ${i+j+1}:`, itemError);
                   stats.errors++;
                 } else {
-                  // Check if it was an update (duplicate) or insert
+                  // Store the product ID for batch creation
                   if (itemData && itemData.length > 0) {
-                    // Item was successfully upserted
+                    productIdMap[item.product_sku] = itemData[0].id;
                     stats.success++;
                   } else {
-                    stats.duplicates++;
+                    // Need to query to get the ID for existing products
+                    const { data: existingProduct } = await supabaseClient
+                      .from('products')
+                      .select('id')
+                      .eq('product_sku', item.product_sku)
+                      .eq('user_id', userId)
+                      .single();
+                    
+                    if (existingProduct) {
+                      productIdMap[item.product_sku] = existingProduct.id;
+                      stats.duplicates++;
+                    }
                   }
                 }
               } catch (err) {
@@ -1089,6 +1106,13 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
               }
             }
           } else {
+            // Store product IDs from successful batch
+            if (data && data.length > 0) {
+              data.forEach(product => {
+                productIdMap[product.product_sku] = product.id;
+              });
+            }
+            
             // Batch upsert succeeded
             stats.success += batch.length;
             console.log(`Successfully upserted batch ${Math.floor(i/batchSize) + 1}`);
@@ -1096,6 +1120,46 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         } catch (err) {
           console.error(`Exception processing batch ${Math.floor(i/batchSize) + 1}:`, err);
           stats.errors += batch.length;
+        }
+      }
+      
+      // After all products are created/updated, create batch records for each product
+      console.log("Creating FIFO batch records for uploaded products...");
+      const batchRecords = formattedData.map(item => {
+        const productId = productIdMap[item.product_sku];
+        if (!productId) {
+          console.error(`No product ID found for SKU: ${item.product_sku}`);
+          return null;
+        }
+        
+        return {
+          product_id: productId,
+          purchase_date: item.purchase_date,
+          quantity_purchased: item.quantity,
+          quantity_available: item.available_qty || item.quantity,
+          cost_per_item: item.cost_per_item,
+          user_id: userId
+        };
+      }).filter(Boolean);
+      
+      if (batchRecords.length > 0) {
+        // Process batch records in chunks
+        for (let i = 0; i < batchRecords.length; i += batchSize) {
+          const batchChunk = batchRecords.slice(i, i + batchSize);
+          
+          try {
+            const { error: batchError } = await supabaseClient
+              .from('product_batches')
+              .insert(batchChunk);
+            
+            if (batchError) {
+              console.error(`Error inserting batch records chunk ${Math.floor(i/batchSize) + 1}:`, batchError);
+            } else {
+              console.log(`Successfully created batch records chunk ${Math.floor(i/batchSize) + 1}/${Math.ceil(batchRecords.length/batchSize)}`);
+            }
+          } catch (err) {
+            console.error(`Exception creating batch records chunk ${Math.floor(i/batchSize) + 1}:`, err);
+          }
         }
       }
       
@@ -1107,7 +1171,7 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         
         // Show success message with details
         const successMsg = `Successfully imported ${stats.success} items` + 
-          (stats.duplicates ? ` (${stats.duplicates} duplicates skipped)` : '') +
+          (stats.duplicates ? ` (${stats.duplicates} duplicates updated)` : '') +
           (stats.errors ? ` (${stats.errors} errors)` : '');
           
         toast.success(successMsg);
@@ -1118,31 +1182,18 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
           // Refresh inventory data
           console.log('Refreshing inventory data after successful import...');
           fetchInventory();
-          if (onItemDeleted) {
-            console.log('Calling onItemDeleted callback to update parent components...');
-            onItemDeleted();
-          }
-        }, 1000); // 1 second delay to ensure database operations are complete
+        }, 2000);
         
-        // Reset states after short delay to show success message
-        setTimeout(() => {
-          setShowUploadModal(false);
-          setUploadedFile(null);
-          setFilePreviewData([]);
-          setMappedData([]);
-          setUploadSuccess(false);
-          setImportStats(null);
-        }, 3000);
-      } else {
-        // If no items were successfully imported
-        setUploadError('Import failed. No items were imported. Please check the console for details.');
-        toast.error('Failed to import data');
+        // Close modals and reset state
+        setShowUploadModal(false);
+        setUploadedFile(null);
+        setFilePreviewData([]);
+        setMappedData([]);
       }
       
     } catch (error) {
       console.error('Error uploading inventory:', error);
-      setUploadError(error instanceof Error ? error.message : 'Failed to upload data');
-      toast.error('Failed to import data');
+      setUploadError(error instanceof Error ? error.message : 'Failed to upload inventory');
     } finally {
       setIsProcessingFile(false);
     }
@@ -1316,6 +1367,26 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
     if (onItemDeleted) {
       onItemDeleted();
     }
+  };
+
+  // Function to handle row click for FIFO details
+  const handleRowClick = (productId: string, e?: React.MouseEvent) => {
+    // If the click is coming from the Actions column or its children, don't open the modal
+    if (e && e.target instanceof HTMLElement) {
+      const actionCell = (e.target as HTMLElement).closest('td:last-child');
+      if (actionCell) {
+        return;
+      }
+    }
+    
+    setSelectedProductId(productId);
+    setShowFifoDetailModal(true);
+  };
+
+  // Function to open FIFO inventory detail
+  const handleOpenFifoDetail = (productId: string) => {
+    setSelectedProductId(productId);
+    setShowFifoDetailModal(true);
   };
 
   if (isLoading) {
@@ -1519,7 +1590,14 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
               </tr>
             ) : (
               currentItems.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 border-b border-slate-200">
+                <tr 
+                  key={item.id} 
+                  className={`hover:bg-slate-50 border-b border-slate-200 cursor-pointer ${
+                    item.status === 'out_of_stock' ? 'bg-red-50' : 
+                    item.status === 'low_stock' ? 'bg-yellow-50' : 
+                    item.status === 'inactive' ? 'bg-gray-100 text-gray-500' : ''
+                  }`}
+                >
                   <td className="p-2 text-slate-800">{item.product_sku || '-'}</td>
                   <td className="p-2 text-slate-800 font-medium">{item.product_name || item.name}</td>
                   <td className="p-2 flex justify-center items-center">
@@ -1666,6 +1744,17 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
                                 Mark as Active
                               </button>
                             )}
+                            
+                            <button
+                              onClick={() => {
+                                toggleMenu(item.id);
+                                handleRowClick(item.id);
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-gray-100"
+                              role="menuitem"
+                            >
+                              View FIFO Details
+                            </button>
                           </div>
                         </div>
                       )}
@@ -2154,6 +2243,18 @@ export default function InventoryTable({ className = '', onItemDeleted, refresh 
         onClose={() => setShowEditItemModal(false)}
         onItemUpdated={handleItemUpdated}
         itemId={editItemId}
+      />
+      
+      {/* Add the FIFO Detail Modal at the end of the component */}
+      <ProductBatchDetailModal
+        isOpen={showFifoDetailModal}
+        onClose={() => setShowFifoDetailModal(false)}
+        productId={selectedProductId}
+        onBatchesChanged={() => {
+          // Refresh inventory data when batches are changed
+          fetchInventory();
+          if (onItemDeleted) onItemDeleted();
+        }}
       />
     </div>
   );

@@ -1,15 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
 import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
-import logger from '../utils/logger';
 
-// Create a client component that uses useSearchParams
-function InventoryContent() {
+export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editItemId, setEditItemId] = useState<string | null>(null);
@@ -29,17 +27,17 @@ function InventoryContent() {
 
   // Function to trigger a refresh of all inventory components
   const refreshInventory = () => {
-    logger.log('InventoryPage: Triggering inventory refresh...');
+    console.log('InventoryPage: Triggering inventory refresh...');
     setRefreshCounter(prev => {
       const newCounter = prev + 1;
-      logger.log(`InventoryPage: Refresh counter updated to ${newCounter}`);
+      console.log(`InventoryPage: Refresh counter updated to ${newCounter}`);
       return newCounter;
     });
   };
   
   // Handle item update
   const handleItemUpdated = () => {
-    logger.log('InventoryPage: Item updated, refreshing inventory...');
+    console.log('InventoryPage: Item updated, refreshing inventory...');
     refreshInventory();
     // Clear the URL parameter
     if (typeof window !== 'undefined') {
@@ -131,14 +129,5 @@ function InventoryContent() {
         itemId={editItemId}
       />
     </div>
-  );
-}
-
-// Main page component with Suspense boundary
-export default function InventoryPage() {
-  return (
-    <Suspense fallback={<div className="p-4 text-center">Loading inventory...</div>}>
-      <InventoryContent />
-    </Suspense>
   );
 } 

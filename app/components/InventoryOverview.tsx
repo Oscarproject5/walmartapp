@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
-import logger from '../utils/logger';
 
 interface InventoryOverviewProps {
   className?: string;
@@ -35,7 +34,7 @@ export default function InventoryOverview({ className = '' }: InventoryOverviewP
 
   useEffect(() => {
     if (userId) {
-      logger.info('InventoryOverview: User ID available, fetching data...');
+      console.log('InventoryOverview: User ID available, fetching data...');
       fetchInventoryMetrics();
     }
   }, [userId]);
@@ -53,7 +52,7 @@ export default function InventoryOverview({ className = '' }: InventoryOverviewP
       if (error) throw error;
       
       if (products) {
-        logger.info(`InventoryOverview: Retrieved ${products.length} products from database`);
+        console.log(`InventoryOverview: Retrieved ${products.length} products from database`);
         
         // Calculate metrics
         const totalProducts = products.length;
@@ -91,7 +90,7 @@ export default function InventoryOverview({ className = '' }: InventoryOverviewP
         });
       }
     } catch (error) {
-      logger.error('Error fetching inventory metrics:', error);
+      console.error('Error fetching inventory metrics:', error);
     } finally {
       setIsLoading(false);
     }

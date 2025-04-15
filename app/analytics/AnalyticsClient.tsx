@@ -5,7 +5,6 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import AIProductSuggestions from '../components/AIProductSuggestions';
 import WorstProductPlan from '../components/WorstProductPlan';
-import logger from '../utils/logger';
 import {
   BarChart,
   Bar,
@@ -134,20 +133,20 @@ export default function AnalyticsClient() {
 
   useEffect(() => {
     if (userId) {
-      logger.log('[AnalyticsClient] User ID available, fetching data...');
+      console.log('[AnalyticsClient] User ID available, fetching data...');
       fetchData();
     }
   }, [timeRange, userId]);
 
   const fetchData = async () => {
-    logger.log('[AnalyticsClient] Starting fetchData for timeRange:', timeRange);
+    console.log('[AnalyticsClient] Starting fetchData for timeRange:', timeRange);
     try {
       setIsLoading(true);
       setError(null);
 
       // Get date ranges for current and previous periods
       const { current_start, current_end, previous_start, previous_end } = getComparisonDateRange(timeRange);
-      logger.log(`[AnalyticsClient] Fetching orders from ${previous_start} to ${current_end}`);
+      console.log(`[AnalyticsClient] Fetching orders from ${previous_start} to ${current_end}`);
 
       // Fetch orders covering both periods - Select only necessary columns
       const { data: fetchedOrdersData, error: ordersError } = await supabaseClient
@@ -158,12 +157,12 @@ export default function AnalyticsClient() {
         .lte('order_date', current_end)     // Less than or equal to end of current period
         .order('order_date', { ascending: false });
       
-      logger.log('[AnalyticsClient] Fetched orders data count (both periods):', fetchedOrdersData?.length || 0);
+      console.log('[AnalyticsClient] Fetched orders data count (both periods):', fetchedOrdersData?.length || 0);
       
       if (ordersError) throw ordersError;
       
       if (!fetchedOrdersData || fetchedOrdersData.length === 0) {
-        logger.log('[AnalyticsClient] No orders found in the relevant date range.');
+        console.log('[AnalyticsClient] No orders found in the relevant date range.');
         setError('No orders found for the selected or previous period.');
         setUsingSampleData(false);
         setSalesData([]);
@@ -181,19 +180,22 @@ export default function AnalyticsClient() {
       const currentPeriodOrders = fetchedOrdersData.filter(order => 
           order.order_date >= current_start && order.order_date <= current_end
       );
+      // const previousPeriodOrders = fetchedOrdersData.filter(order => 
+      //     order.order_date >= previous_start && order.order_date <= previous_end
+      // ); // We'll use this filtering inside processProductData
       
-      logger.log('[AnalyticsClient] Current period orders count:', currentPeriodOrders.length);
+      console.log('[AnalyticsClient] Current period orders count:', currentPeriodOrders.length);
 
       // Process products data first, including trend analysis
       const productData = processProductData(fetchedOrdersData, current_start, current_end, previous_start, previous_end);
-      logger.log('[AnalyticsClient] Processed product data with trends count:', productData.length);
+      console.log('[AnalyticsClient] Processed product data with trends count:', productData.length);
       setProductsData(productData);
 
       // Process data for charts using only CURRENT period data
-      logger.log('[AnalyticsClient] Processing chart data for current period...');
+      console.log('[AnalyticsClient] Processing chart data for current period...');
       const formattedSalesData = processSalesData(currentPeriodOrders); // Pass only current orders
       const formattedPlatformData = processPlatformData(currentPeriodOrders); // Pass only current orders
-      logger.log('[AnalyticsClient] Processed chart data:', { formattedSalesData, formattedPlatformData });
+      console.log('[AnalyticsClient] Processed chart data:', { formattedSalesData, formattedPlatformData });
       
       setSalesData(formattedSalesData);
       setPlatformData(formattedPlatformData);
@@ -227,11 +229,11 @@ export default function AnalyticsClient() {
         revenueGrowth: isFinite(revenueGrowth) ? revenueGrowth : 0, // Update with calculated growth
         profitGrowth: isFinite(profitGrowth) ? profitGrowth : 0,     // Update with calculated growth
       };
-      logger.log('[AnalyticsClient] Calculated metrics (current period):', newMetrics);
+      console.log('[AnalyticsClient] Calculated metrics (current period):', newMetrics);
       setMetrics(newMetrics);
 
     } catch (err: any) {
-      logger.error('[AnalyticsClient] Error fetching or processing analytics data:', err);
+      console.error('[AnalyticsClient] Error fetching or processing analytics data:', err);
       setError(`Failed to load analytics data: ${err.message || 'Unknown error'}`);
       // Reset states
       setUsingSampleData(false);
@@ -243,7 +245,7 @@ export default function AnalyticsClient() {
           revenueGrowth: 0, profitGrowth: 0
       });
     } finally {
-      logger.log('[AnalyticsClient] Setting isLoading to false.');
+      console.log('[AnalyticsClient] Setting isLoading to false.');
       setIsLoading(false);
     }
   };
@@ -253,7 +255,7 @@ export default function AnalyticsClient() {
 
   // Process sales data for time-based charts (expects only current period data)
   const processSalesData = (data: any[]) => {
-    logger.log('[AnalyticsClient] processSalesData called with data count (current period):', data.length);
+    console.log('[AnalyticsClient] processSalesData called with data count (current period):', data.length);
     const groupedByDate: Record<string, { revenue: number, profit: number, count: number, label: string }> = {};
     
     data.forEach(order => {
@@ -294,13 +296,13 @@ export default function AnalyticsClient() {
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
       .map(({ sortKey, ...rest }) => rest); 
       
-    logger.log('[AnalyticsClient] processSalesData result:', result);
+    console.log('[AnalyticsClient] processSalesData result:', result);
     return result as SalesDataItem[]; 
   };
 
   // Process sales data for platform-based charts (expects only current period data)
   const processPlatformData = (data: any[]) => {
-    logger.log('[AnalyticsClient] processPlatformData called with data count (current period):', data.length);
+    console.log('[AnalyticsClient] processPlatformData called with data count (current period):', data.length);
     const groupedByPlatform: Record<string, { orders: number, revenue: number, profit: number }> = {};
     const defaultPlatform = 'Walmart';
     data.forEach(order => {
@@ -318,7 +320,7 @@ export default function AnalyticsClient() {
       revenue: values.revenue,
       profit: values.profit
     }));
-    logger.log('[AnalyticsClient] processPlatformData result:', result);
+    console.log('[AnalyticsClient] processPlatformData result:', result);
     return result as PlatformDataItem[];
   };
 
@@ -330,7 +332,7 @@ export default function AnalyticsClient() {
     previous_start: string, 
     previous_end: string
   ): ProductPerformanceData[] => {
-    logger.log('[AnalyticsClient] processProductData called for trend analysis.');
+    console.log('[AnalyticsClient] processProductData called for trend analysis.');
 
     const calculateProductMetrics = (orders: any[]) => {
       const grouped: Record<string, {
@@ -370,8 +372,8 @@ export default function AnalyticsClient() {
     const currentOrders = allOrders.filter(o => o.order_date >= current_start && o.order_date <= current_end);
     const previousOrders = allOrders.filter(o => o.order_date >= previous_start && o.order_date <= previous_end);
 
-    logger.log(`[AnalyticsClient] Current period orders for product processing: ${currentOrders.length}`);
-    logger.log(`[AnalyticsClient] Previous period orders for product processing: ${previousOrders.length}`);
+    console.log(`[AnalyticsClient] Current period orders for product processing: ${currentOrders.length}`);
+    console.log(`[AnalyticsClient] Previous period orders for product processing: ${previousOrders.length}`);
 
     // Calculate metrics for both periods
     const currentMetrics = calculateProductMetrics(currentOrders);
@@ -407,9 +409,9 @@ export default function AnalyticsClient() {
       };
     });
 
-    logger.log('[AnalyticsClient] Product analytics data with trends processed:', finalProductData.length);
+    console.log('[AnalyticsClient] Product analytics data with trends processed:', finalProductData.length);
     if (finalProductData.length > 0) {
-        logger.log('[AnalyticsClient] Sample processed product with trends:', finalProductData[0]);
+        console.log('[AnalyticsClient] Sample processed product with trends:', finalProductData[0]);
     }
     
     // Sort by current period's total revenue (descending)
@@ -424,7 +426,7 @@ export default function AnalyticsClient() {
     );
   }
 
-  logger.log('[AnalyticsClient] Rendering component with state:', { isLoading, error, salesData, platformData, productsData, metrics });
+  console.log('[AnalyticsClient] Rendering component with state:', { isLoading, error, salesData, platformData, productsData, metrics });
 
   return (
     <div className="container mx-auto px-4 py-8">

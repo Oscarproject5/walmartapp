@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
-import logger from '../utils/logger';
 import Link from 'next/link';
 
 interface ProductPerformance {
@@ -53,7 +52,7 @@ export default function ProductPerformanceClient() {
 
   useEffect(() => {
     if (userId) {
-      logger.log('ProductPerformanceClient: User ID available, fetching data...');
+      console.log('ProductPerformanceClient: User ID available, fetching data...');
       fetchProductPerformance();
     }
   }, [userId]);
@@ -61,7 +60,7 @@ export default function ProductPerformanceClient() {
   const fetchProductPerformance = async () => {
     try {
       setIsLoading(true);
-      logger.log('ProductPerformanceClient: Fetching order data...');
+      console.log('ProductPerformanceClient: Fetching order data...');
       
       // Direct SQL query to get product performance from orders table
       const { data: orderData, error: orderError } = await supabase
@@ -72,7 +71,7 @@ export default function ProductPerformanceClient() {
         
       if (orderError) throw orderError;
       
-      logger.log(`ProductPerformanceClient: Found ${orderData?.length || 0} orders in database`);
+      console.log(`ProductPerformanceClient: Found ${orderData?.length || 0} orders in database`);
       
       if (!orderData || orderData.length === 0) {
         // If no orders are found, display an error
@@ -142,7 +141,7 @@ export default function ProductPerformanceClient() {
       setProducts(productsArray);
       
     } catch (err: any) {
-      logger.error('Error fetching product performance:', err);
+      console.error('Error fetching product performance:', err);
       setError(`Failed to load product performance data: ${err.message || 'Unknown error'}`);
       setProducts([]);
     } finally {

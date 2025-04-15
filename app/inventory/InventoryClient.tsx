@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatCurrency } from '../utils/calculations';
 import Link from 'next/link';
-import logger from '../utils/logger';
 
 // Replace the SAMPLE_INVENTORY array with an empty array
 const SAMPLE_INVENTORY: Product[] = [];
@@ -68,12 +67,12 @@ export default function InventoryClient() {
             .eq('id', product.id);
             
           if (error) {
-            logger.error(`Error updating status for product ${product.id}:`, error);
+            console.error(`Error updating status for product ${product.id}:`, error);
           } else {
-            logger.log(`Updated status for ${product.name} to ${status} (available: ${availableQty})`);
+            console.log(`Updated status for ${product.name} to ${status} (available: ${availableQty})`);
           }
         } catch (err) {
-          logger.error(`Exception updating status for product ${product.id}:`, err);
+          console.error(`Exception updating status for product ${product.id}:`, err);
         }
         
         // Return product with updated status for local state
@@ -108,7 +107,7 @@ export default function InventoryClient() {
       
       setUsingSampleData(false);
     } catch (err) {
-      logger.error('Error loading inventory:', err);
+      console.error('Error loading inventory:', err);
       setProducts([]);
       setUsingSampleData(false);
     } finally {
@@ -228,8 +227,8 @@ export default function InventoryClient() {
       setShowForm(false);
       setError(null);
     } catch (err) {
-      logger.error('Error saving product:', err);
-      setError('Failed to save the product. Please try again.');
+      console.error('Error saving product:', err);
+      setError('Failed to save product. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -264,8 +263,8 @@ export default function InventoryClient() {
         await loadInventory();
       }
     } catch (err) {
-      logger.error('Error deleting product:', err);
-      setError('Failed to delete the product. Please try again.');
+      console.error('Error deleting product:', err);
+      setError('Failed to delete product. Please try again.');
     } finally {
       setIsLoading(false);
     }

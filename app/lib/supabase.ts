@@ -38,6 +38,38 @@ if (process.env.NODE_ENV === 'development') {
 export type Database = {
   public: {
     Tables: {
+      product_batches: {
+        Row: {
+          id: string;
+          product_id: string;
+          purchase_date: string;
+          quantity_purchased: number;
+          quantity_available: number;
+          cost_per_item: number;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          purchase_date: string;
+          quantity_purchased: number;
+          quantity_available: number;
+          cost_per_item: number;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          purchase_date?: string;
+          quantity_purchased?: number;
+          quantity_available?: number;
+          cost_per_item?: number;
+          user_id?: string;
+          created_at?: string;
+        };
+      };
       app_settings: {
         Row: {
           id: string;
@@ -197,9 +229,9 @@ export type Database = {
         Row: {
           id: string;
           name: string;
-          quantity: number;
-          cost_per_item: number;
-          purchase_date: string;
+          quantity: number; // Total purchased quantity across batches
+          cost_per_item: number; // Weighted average cost
+          purchase_date: string; // First purchase date
           source: 'amazon' | 'walmart' | 'sams_club';
           created_at: string;
           sku: string | null;
@@ -208,20 +240,18 @@ export type Database = {
           image_url: string | null;
           supplier: string | null;
           product_link: string | null;
-          purchase_price: number | null;
-          sales_qty: number;
-          available_qty: number;
-          per_qty_price: number | null;
-          stock_value: number | null;
-          status: string;
+          sales_qty: number; // Calculated: quantity - available_qty
+          available_qty: number; // Calculated: sum of product_batches.quantity_available
+          stock_value: number; // Calculated: sum of product_batches.quantity_available * cost_per_item
+          status: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks: string | null;
           user_id: string;
         };
         Insert: {
           id?: string;
           name: string;
-          quantity: number;
-          cost_per_item: number;
+          quantity?: number;
+          cost_per_item?: number;
           purchase_date?: string;
           source?: 'amazon' | 'walmart' | 'sams_club';
           created_at?: string;
@@ -231,12 +261,10 @@ export type Database = {
           image_url?: string | null;
           supplier?: string | null;
           product_link?: string | null;
-          purchase_price?: number | null;
           sales_qty?: number;
           available_qty?: number;
-          per_qty_price?: number | null;
-          stock_value?: number | null;
-          status?: string;
+          stock_value?: number;
+          status?: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks?: string | null;
           user_id: string;
         };
@@ -254,12 +282,10 @@ export type Database = {
           image_url?: string | null;
           supplier?: string | null;
           product_link?: string | null;
-          purchase_price?: number | null;
           sales_qty?: number;
           available_qty?: number;
-          per_qty_price?: number | null;
-          stock_value?: number | null;
-          status?: string;
+          stock_value?: number;
+          status?: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks?: string | null;
           user_id?: string;
         };
@@ -363,14 +389,14 @@ export type Database = {
           order_quantity: number;
           walmart_price_per_unit: number;
           walmart_shipping_fee_per_unit: number;
-          product_cost_per_unit: number;
+          product_cost_per_unit: number; // FIFO average cost for this order
           fulfillment_cost: number;
-          shipping_settings_id: string | null;
+          app_settings_id: string | null;
           walmart_shipping_total: number;
           walmart_item_total: number;
           total_revenue: number;
           walmart_fee: number;
-          product_cost_total: number;
+          product_cost_total: number; // Total cost of goods sold using FIFO
           net_profit: number;
           roi: number;
           created_at: string;
@@ -378,7 +404,6 @@ export type Database = {
           status: string;
           user_id: string;
           upload_batch_id: string | null;
-          app_settings_id: string | null;
         };
         Insert: {
           order_id?: string;
@@ -391,7 +416,7 @@ export type Database = {
           walmart_shipping_fee_per_unit: number;
           product_cost_per_unit: number;
           fulfillment_cost: number;
-          shipping_settings_id?: string | null;
+          app_settings_id?: string | null;
           walmart_shipping_total?: number;
           walmart_item_total?: number;
           total_revenue?: number;
@@ -404,7 +429,6 @@ export type Database = {
           status?: string;
           user_id: string;
           upload_batch_id?: string | null;
-          app_settings_id?: string | null;
         };
         Update: {
           order_id?: string;
@@ -417,7 +441,7 @@ export type Database = {
           walmart_shipping_fee_per_unit?: number;
           product_cost_per_unit?: number;
           fulfillment_cost?: number;
-          shipping_settings_id?: string | null;
+          app_settings_id?: string | null;
           walmart_shipping_total?: number;
           walmart_item_total?: number;
           total_revenue?: number;
@@ -430,7 +454,6 @@ export type Database = {
           status?: string;
           user_id?: string;
           upload_batch_id?: string | null;
-          app_settings_id?: string | null;
         };
       };
       users: {
@@ -512,15 +535,14 @@ export type Database = {
           image_url: string | null;
           supplier: string | null;
           product_link: string | null;
-          purchase_price: number | null;
-          total_qty: number;
+          total_purchased_quantity: number;
           sales_qty: number;
           available_qty: number;
-          per_qty_price: number | null;
-          stock_value: number | null;
+          average_cost_per_item: number;
+          stock_value: number;
           status: string;
           remarks: string | null;
-          created_at: string;
+          first_purchase_date: string;
           user_id: string;
         };
       };
@@ -537,62 +559,6 @@ export type Database = {
     };
   };
 };
-
-// Let's add a function to check the database schema
-export async function checkDatabaseSchema() {
-  try {
-    // Create an authenticated client
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    });
-    
-    // Try to get the current session
-    const { data: { session } } = await authClient.auth.getSession();
-    const userId = session?.user?.id;
-    
-    if (!userId) {
-      return { 
-        success: false, 
-        error: 'No authenticated user found'
-      };
-    }
-    
-    // Check if the products table has a status field
-    const { data, error } = await authClient
-      .from('products')
-      .select('status')
-      .eq('user_id', userId)
-      .limit(1);
-    
-    if (error) {
-      console.error('Error checking schema:', error);
-      return { success: false, error };
-    }
-    
-    // Check the metadata/columns for the products table
-    const { data: tableInfo, error: tableError } = await authClient.rpc('get_table_info', {
-      table_name: 'products'
-    });
-    
-    if (tableError) {
-      console.error('Error getting table info:', tableError);
-      return { success: false, error: tableError };
-    }
-    
-    return { 
-      success: true, 
-      hasStatusField: data && data.length > 0 && 'status' in data[0],
-      tableInfo
-    };
-  } catch (err) {
-    console.error('Schema check failed:', err);
-    return { success: false, error: err };
-  }
-}
 
 // Helper to get current user ID safely
 export async function getCurrentUserId() {

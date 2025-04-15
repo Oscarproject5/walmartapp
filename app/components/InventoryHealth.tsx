@@ -18,7 +18,6 @@ import {
   LineChart,
   Line
 } from 'recharts';
-import logger from '../utils/logger';
 
 interface InventoryHealthProps {
   className?: string;
@@ -74,7 +73,6 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
   const [isLoading, setIsLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = createClientComponentClient();
-  const [error, setError] = useState<string | null>(null);
 
   // Get the current user's ID
   useEffect(() => {
@@ -89,7 +87,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
 
   useEffect(() => {
     if (userId) {
-      logger.info('InventoryHealth: User ID available, fetching data...');
+      console.log('InventoryHealth: User ID available, fetching data...');
       fetchInventoryData();
     }
   }, [refresh, userId]);
@@ -97,7 +95,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
   async function fetchInventoryData() {
     try {
       setIsLoading(true);
-      logger.info('InventoryHealth: Fetching inventory data from database...');
+      console.log('InventoryHealth: Fetching inventory data from database...');
       
       // Fetch products for the current user
       const { data: products, error } = await supabase
@@ -108,7 +106,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
       if (error) throw error;
       
       if (products) {
-        logger.info(`InventoryHealth: Retrieved ${products.length} products from database`);
+        console.log(`InventoryHealth: Retrieved ${products.length} products from database`);
         setInventoryData(products);
         
         // Calculate status distribution
@@ -222,8 +220,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
         setRecommendations(recommendations);
       }
     } catch (error) {
-      logger.error('Error fetching inventory health data:', error);
-      setError('Failed to load inventory health data. Please refresh and try again.');
+      console.error('Error fetching inventory health data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -461,15 +458,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
 }
 
 // Helper components and functions
-interface ActionCardProps {
-  title: string;
-  description: string;
-  icon: 'refresh' | 'chart' | 'users';
-  color: 'blue' | 'amber' | 'purple' | 'green' | 'red';
-  url: string;
-}
-
-function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
+function ActionCard({ title, description, icon, color, url }) {
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -517,7 +506,7 @@ function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
 }
 
 // Calculate health score based on inventory status
-function calculateHealthScore(statusData: ChartDataItem[]): number {
+function calculateHealthScore(statusData) {
   if (!statusData || statusData.length === 0) return 0;
   
   // Get the counts
@@ -528,7 +517,7 @@ function calculateHealthScore(statusData: ChartDataItem[]): number {
   };
   
   statusData.forEach(item => {
-    counts[item.name as keyof typeof counts] = item.value;
+    counts[item.name] = item.value;
   });
   
   const total = counts['Active'] + counts['Low Stock'] + counts['Out Of Stock'];
@@ -542,7 +531,7 @@ function calculateHealthScore(statusData: ChartDataItem[]): number {
 }
 
 // Get health status text based on score
-function getHealthStatus(score: number): string {
+function getHealthStatus(score) {
   if (score >= 90) return 'Excellent';
   if (score >= 75) return 'Good';
   if (score >= 60) return 'Average';
@@ -551,7 +540,7 @@ function getHealthStatus(score: number): string {
 }
 
 // Get color based on health score
-function getHealthScoreColor(score: number): string {
+function getHealthScoreColor(score) {
   if (score >= 90) return '#10B981'; // green
   if (score >= 75) return '#34D399'; // green-light
   if (score >= 60) return '#F59E0B'; // amber
