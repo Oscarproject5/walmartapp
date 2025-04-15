@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import AIProductSuggestions from '../components/AIProductSuggestions';
+import WorstProductPlan from '../components/WorstProductPlan';
 import {
   BarChart,
   Bar,
@@ -106,6 +107,19 @@ export default function AnalyticsClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usingSampleData, setUsingSampleData] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabaseClient = createClientComponentClient();
+
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
 
   // Top level metrics (Consider adding growth metrics from data)
   const [metrics, setMetrics] = useState({
@@ -118,9 +132,11 @@ export default function AnalyticsClient() {
   });
 
   useEffect(() => {
-    fetchData();
-    // Count check is less critical now, removed for brevity
-  }, [timeRange]);
+    if (userId) {
+      console.log('[AnalyticsClient] User ID available, fetching data...');
+      fetchData();
+    }
+  }, [timeRange, userId]);
 
   const fetchData = async () => {
     console.log('[AnalyticsClient] Starting fetchData for timeRange:', timeRange);
@@ -133,9 +149,10 @@ export default function AnalyticsClient() {
       console.log(`[AnalyticsClient] Fetching orders from ${previous_start} to ${current_end}`);
 
       // Fetch orders covering both periods - Select only necessary columns
-      const { data: fetchedOrdersData, error: ordersError } = await supabase
+      const { data: fetchedOrdersData, error: ordersError } = await supabaseClient
         .from('orders')
         .select('order_date, total_revenue, net_profit, sku, product_name, order_quantity')
+        .eq('user_id', userId)
         .gte('order_date', previous_start) // Greater than or equal to start of previous period
         .lte('order_date', current_end)     // Less than or equal to end of current period
         .order('order_date', { ascending: false });
@@ -628,9 +645,13 @@ export default function AnalyticsClient() {
         </div>
       </div>
 
-      {/* AI Product Suggestions Component */}
-      <div className="mt-8">
+      {/* AI Tools Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        {/* AI Product Suggestions */}
         <AIProductSuggestions products={productsData} />
+        
+        {/* Worst Product Plan Component */}
+        <WorstProductPlan products={productsData} />
       </div>
 
     </div>

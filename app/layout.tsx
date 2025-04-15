@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
-import Layout from './components/Layout';
 import { Toaster } from 'react-hot-toast';
+import { AuthProvider } from './context/auth-context';
+import Layout from './components/Layout';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const poppins = Poppins({ 
@@ -25,8 +26,10 @@ export default function RootLayout({
     <html lang="en" className="h-full bg-gray-50">
       <body className={`${inter.variable} ${poppins.variable} font-sans relative min-h-screen`} suppressHydrationWarning={true}>
         <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-slate-50 to-blue-50 -z-10"></div>
-        <Layout>{children}</Layout>
-        <Toaster position="top-right" />
+        <AuthProvider>
+          <Layout>{children}</Layout>
+          <Toaster position="top-right" />
+        </AuthProvider>
       </body>
     </html>
   );

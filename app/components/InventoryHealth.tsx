@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import {
   BarChart,
@@ -24,9 +24,39 @@ interface InventoryHealthProps {
   refresh?: number;
 }
 
+interface ProductData {
+  id: string;
+  user_id: string;
+  name: string;
+  quantity: number;
+  cost_per_item: number;
+  stock_value?: number;
+  supplier?: string;
+  source?: string;
+  status?: 'active' | 'low_stock' | 'out_of_stock';
+}
+
+interface StatusCount {
+  active: number;
+  low_stock: number;
+  out_of_stock: number;
+}
+
+interface StatusValue {
+  active: number;
+  low_stock: number;
+  out_of_stock: number;
+}
+
+interface ChartDataItem {
+  name: string;
+  value: number;
+  color?: string;
+}
+
 // Define the different inventory status categories
 const STATUSES = ['active', 'low_stock', 'out_of_stock'];
-const STATUS_COLORS = {
+const STATUS_COLORS: Record<string, string> = {
   active: '#10B981', // green
   low_stock: '#F59E0B', // amber
   out_of_stock: '#EF4444', // red
@@ -34,34 +64,53 @@ const STATUS_COLORS = {
 };
 
 export default function InventoryHealth({ className = '', refresh = 0 }: InventoryHealthProps) {
-  const [inventoryData, setInventoryData] = useState<any[]>([]);
-  const [statusDistribution, setStatusDistribution] = useState<any[]>([]);
-  const [valueByStatus, setValueByStatus] = useState<any[]>([]);
-  const [supplierDistribution, setSupplierDistribution] = useState<any[]>([]);
+  const [inventoryData, setInventoryData] = useState<ProductData[]>([]);
+  const [statusDistribution, setStatusDistribution] = useState<ChartDataItem[]>([]);
+  const [valueByStatus, setValueByStatus] = useState<ChartDataItem[]>([]);
+  const [supplierDistribution, setSupplierDistribution] = useState<ChartDataItem[]>([]);
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
 
   useEffect(() => {
-    fetchInventoryData();
-  }, [refresh]);
+    if (userId) {
+      console.log('InventoryHealth: User ID available, fetching data...');
+      fetchInventoryData();
+    }
+  }, [refresh, userId]);
 
   async function fetchInventoryData() {
     try {
       setIsLoading(true);
+      console.log('InventoryHealth: Fetching inventory data from database...');
       
-      // Fetch all products
+      // Fetch products for the current user
       const { data: products, error } = await supabase
         .from('products')
-        .select('*');
+        .select('*')
+        .eq('user_id', userId);
       
       if (error) throw error;
       
       if (products) {
+        console.log(`InventoryHealth: Retrieved ${products.length} products from database`);
         setInventoryData(products);
         
         // Calculate status distribution
-        const statusCounts = {
+        const statusCounts: StatusCount = {
           active: 0,
           low_stock: 0,
           out_of_stock: 0
@@ -69,8 +118,8 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
         
         products.forEach(product => {
           const status = product.status || 'active';
-          if (statusCounts[status] !== undefined) {
-            statusCounts[status]++;
+          if (status in statusCounts) {
+            statusCounts[status as keyof StatusCount]++;
           }
         });
         
@@ -83,7 +132,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
         setStatusDistribution(statusData);
         
         // Calculate inventory value by status
-        const valueByStatus = {
+        const valueByStatus: StatusValue = {
           active: 0,
           low_stock: 0,
           out_of_stock: 0
@@ -91,8 +140,8 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
         
         products.forEach(product => {
           const status = product.status || 'active';
-          if (valueByStatus[status] !== undefined) {
-            valueByStatus[status] += (product.stock_value || (product.quantity * product.cost_per_item)) || 0;
+          if (status in valueByStatus) {
+            valueByStatus[status as keyof StatusValue] += (product.stock_value || (product.quantity * product.cost_per_item)) || 0;
           }
         });
         
@@ -105,7 +154,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
         setValueByStatus(valueData);
         
         // Calculate supplier distribution
-        const supplierCounts = {};
+        const supplierCounts: Record<string, number> = {};
         products.forEach(product => {
           const supplier = product.supplier || product.source || 'unknown';
           if (!supplierCounts[supplier]) {

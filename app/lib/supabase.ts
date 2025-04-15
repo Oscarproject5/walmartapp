@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -37,6 +38,38 @@ if (process.env.NODE_ENV === 'development') {
 export type Database = {
   public: {
     Tables: {
+      product_batches: {
+        Row: {
+          id: string;
+          product_id: string;
+          purchase_date: string;
+          quantity_purchased: number;
+          quantity_available: number;
+          cost_per_item: number;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          purchase_date: string;
+          quantity_purchased: number;
+          quantity_available: number;
+          cost_per_item: number;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          product_id?: string;
+          purchase_date?: string;
+          quantity_purchased?: number;
+          quantity_available?: number;
+          cost_per_item?: number;
+          user_id?: string;
+          created_at?: string;
+        };
+      };
       app_settings: {
         Row: {
           id: string;
@@ -49,6 +82,7 @@ export type Database = {
           openrouter_api_key: string | null;
           created_at: string;
           updated_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -61,6 +95,7 @@ export type Database = {
           openrouter_api_key?: string | null;
           created_at?: string;
           updated_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -73,6 +108,7 @@ export type Database = {
           openrouter_api_key?: string | null;
           created_at?: string;
           updated_at?: string;
+          user_id?: string;
         };
       };
       shipping_settings: {
@@ -81,18 +117,21 @@ export type Database = {
           base_cost: number;
           label_cost: number;
           updated_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
           base_cost?: number;
           label_cost?: number;
           updated_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
           base_cost?: number;
           label_cost?: number;
           updated_at?: string;
+          user_id?: string;
         };
       };
       ai_recommendations: {
@@ -111,6 +150,7 @@ export type Database = {
           status: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at: string;
           implemented_at: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -127,6 +167,7 @@ export type Database = {
           status?: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at?: string;
           implemented_at?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -143,6 +184,7 @@ export type Database = {
           status?: 'pending' | 'approved' | 'rejected' | 'implemented';
           created_at?: string;
           implemented_at?: string | null;
+          user_id?: string;
         };
       };
       canceled_orders: {
@@ -156,6 +198,7 @@ export type Database = {
           total_loss: number;
           notes: string | null;
           created_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -167,6 +210,7 @@ export type Database = {
           total_loss?: number;
           notes?: string | null;
           created_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -178,15 +222,16 @@ export type Database = {
           total_loss?: number;
           notes?: string | null;
           created_at?: string;
+          user_id?: string;
         };
       };
       products: {
         Row: {
           id: string;
           name: string;
-          quantity: number;
-          cost_per_item: number;
-          purchase_date: string;
+          quantity: number; // Total purchased quantity across batches
+          cost_per_item: number; // Weighted average cost
+          purchase_date: string; // First purchase date
           source: 'amazon' | 'walmart' | 'sams_club';
           created_at: string;
           sku: string | null;
@@ -195,19 +240,18 @@ export type Database = {
           image_url: string | null;
           supplier: string | null;
           product_link: string | null;
-          purchase_price: number | null;
-          sales_qty: number;
-          available_qty: number;
-          per_qty_price: number | null;
-          stock_value: number | null;
-          status: string;
+          sales_qty: number; // Calculated: quantity - available_qty
+          available_qty: number; // Calculated: sum of product_batches.quantity_available
+          stock_value: number; // Calculated: sum of product_batches.quantity_available * cost_per_item
+          status: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
           name: string;
-          quantity: number;
-          cost_per_item: number;
+          quantity?: number;
+          cost_per_item?: number;
           purchase_date?: string;
           source?: 'amazon' | 'walmart' | 'sams_club';
           created_at?: string;
@@ -217,13 +261,12 @@ export type Database = {
           image_url?: string | null;
           supplier?: string | null;
           product_link?: string | null;
-          purchase_price?: number | null;
           sales_qty?: number;
           available_qty?: number;
-          per_qty_price?: number | null;
-          stock_value?: number | null;
-          status?: string;
+          stock_value?: number;
+          status?: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -239,13 +282,12 @@ export type Database = {
           image_url?: string | null;
           supplier?: string | null;
           product_link?: string | null;
-          purchase_price?: number | null;
           sales_qty?: number;
           available_qty?: number;
-          per_qty_price?: number | null;
-          stock_value?: number | null;
-          status?: string;
+          stock_value?: number;
+          status?: 'active' | 'inactive' | 'out_of_stock' | 'low_stock';
           remarks?: string | null;
+          user_id?: string;
         };
       };
       sales: {
@@ -276,6 +318,7 @@ export type Database = {
           ship_method: string | null;
           carrier_method: string | null;
           item_condition: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
@@ -304,6 +347,7 @@ export type Database = {
           ship_method?: string | null;
           carrier_method?: string | null;
           item_condition?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
@@ -332,6 +376,7 @@ export type Database = {
           ship_method?: string | null;
           carrier_method?: string | null;
           item_condition?: string | null;
+          user_id?: string;
         };
       };
       orders: {
@@ -344,19 +389,21 @@ export type Database = {
           order_quantity: number;
           walmart_price_per_unit: number;
           walmart_shipping_fee_per_unit: number;
-          product_cost_per_unit: number;
+          product_cost_per_unit: number; // FIFO average cost for this order
           fulfillment_cost: number;
-          shipping_settings_id: string | null;
+          app_settings_id: string | null;
           walmart_shipping_total: number;
           walmart_item_total: number;
           total_revenue: number;
           walmart_fee: number;
-          product_cost_total: number;
+          product_cost_total: number; // Total cost of goods sold using FIFO
           net_profit: number;
           roi: number;
           created_at: string;
           updated_at: string;
           status: string;
+          user_id: string;
+          upload_batch_id: string | null;
         };
         Insert: {
           order_id?: string;
@@ -369,7 +416,7 @@ export type Database = {
           walmart_shipping_fee_per_unit: number;
           product_cost_per_unit: number;
           fulfillment_cost: number;
-          shipping_settings_id?: string | null;
+          app_settings_id?: string | null;
           walmart_shipping_total?: number;
           walmart_item_total?: number;
           total_revenue?: number;
@@ -380,6 +427,8 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           status?: string;
+          user_id: string;
+          upload_batch_id?: string | null;
         };
         Update: {
           order_id?: string;
@@ -392,7 +441,7 @@ export type Database = {
           walmart_shipping_fee_per_unit?: number;
           product_cost_per_unit?: number;
           fulfillment_cost?: number;
-          shipping_settings_id?: string | null;
+          app_settings_id?: string | null;
           walmart_shipping_total?: number;
           walmart_item_total?: number;
           total_revenue?: number;
@@ -403,6 +452,76 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           status?: string;
+          user_id?: string;
+          upload_batch_id?: string | null;
+        };
+      };
+      users: {
+        Row: {
+          id: string;
+          auth_id: string;
+          email: string;
+          first_name: string | null;
+          last_name: string | null;
+          company_name: string | null;
+          phone: string | null;
+          address_line1: string | null;
+          address_line2: string | null;
+          city: string | null;
+          state: string | null;
+          postal_code: string | null;
+          country: string | null;
+          profile_image_url: string | null;
+          walmart_seller_id: string | null;
+          amazon_seller_id: string | null;
+          tax_id: string | null;
+          business_type: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          auth_id: string;
+          email: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          state?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          profile_image_url?: string | null;
+          walmart_seller_id?: string | null;
+          amazon_seller_id?: string | null;
+          tax_id?: string | null;
+          business_type?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          auth_id?: string;
+          email?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          state?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          profile_image_url?: string | null;
+          walmart_seller_id?: string | null;
+          amazon_seller_id?: string | null;
+          tax_id?: string | null;
+          business_type?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
         };
       };
     };
@@ -416,52 +535,39 @@ export type Database = {
           image_url: string | null;
           supplier: string | null;
           product_link: string | null;
-          purchase_price: number | null;
-          total_qty: number;
+          total_purchased_quantity: number;
           sales_qty: number;
           available_qty: number;
-          per_qty_price: number | null;
-          stock_value: number | null;
+          average_cost_per_item: number;
+          stock_value: number;
           status: string;
           remarks: string | null;
+          first_purchase_date: string;
+          user_id: string;
+        };
+      };
+      batch_analytics_view: {
+        Row: {
+          upload_batch_id: string;
+          order_count: number;
           created_at: string;
+          user_id: string;
+          total_revenue: number;
+          total_profit: number;
         };
       };
     };
   };
 };
 
-// Let's add a function to check the database schema
-export async function checkDatabaseSchema() {
+// Helper to get current user ID safely
+export async function getCurrentUserId() {
   try {
-    // Check if the products table has a status field
-    const { data, error } = await supabase
-      .from('products')
-      .select('status')
-      .limit(1);
-    
-    if (error) {
-      console.error('Error checking schema:', error);
-      return { success: false, error };
-    }
-    
-    // Check the metadata/columns for the products table
-    const { data: tableInfo, error: tableError } = await supabase.rpc('get_table_info', {
-      table_name: 'products'
-    });
-    
-    if (tableError) {
-      console.error('Error getting table info:', tableError);
-      return { success: false, error: tableError };
-    }
-    
-    return { 
-      success: true, 
-      hasStatusField: data && data.length > 0 && 'status' in data[0],
-      tableInfo
-    };
-  } catch (err) {
-    console.error('Schema check failed:', err);
-    return { success: false, error: err };
+    const client = createClientComponentClient();
+    const { data: { session } } = await client.auth.getSession();
+    return session?.user?.id;
+  } catch (error) {
+    console.error('Error getting current user ID:', error);
+    return null;
   }
 } 

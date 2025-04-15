@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 
 interface InventoryDetailedOverviewProps {
@@ -16,45 +16,75 @@ export default function InventoryDetailedOverview({ className = '', refresh = 0 
     totalValue: 0,
     activeItems: 0,
     lowStockItems: 0,
-    outOfStockItems: 0
+    outOfStockItems: 0,
+    soldStockValue: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
 
   useEffect(() => {
-    fetchInventoryMetrics();
-  }, [refresh]);
+    console.log(`InventoryDetailedOverview: Refreshing metrics (refresh counter: ${refresh})`);
+    if (userId) {
+      fetchInventoryMetrics();
+    }
+  }, [refresh, userId]);
 
   async function fetchInventoryMetrics() {
     try {
       setIsLoading(true);
+      console.log('InventoryDetailedOverview: Fetching metrics from the database...');
+      console.log(`InventoryDetailedOverview: Using user_id: ${userId}`);
       
-      // Fetch all products
+      // Fetch products for the current user
       const { data: products, error } = await supabase
         .from('products')
-        .select('*');
+        .select('*')
+        .eq('user_id', userId);
       
       if (error) throw error;
       
       if (products) {
+        console.log(`InventoryDetailedOverview: Retrieved ${products.length} products from database`);
+        
         // Calculate metrics
         const totalProducts = products.length;
         const totalQuantity = products.reduce((sum, product) => sum + (product.quantity || 0), 0);
         const totalValue = products.reduce((sum, product) => 
           sum + (product.stock_value || (product.quantity * product.cost_per_item)), 0);
         
+        // Get sold stock value from database, fall back to calculation if necessary
+        const soldStockValue = products.reduce((sum, product) => 
+          sum + (product.sold_stock_value || ((product.sales_qty || 0) * product.cost_per_item)), 0);
+        
         // Count by status
         const activeItems = products.filter(p => p.status === 'active' || !p.status).length;
         const lowStockItems = products.filter(p => p.status === 'low_stock').length;
         const outOfStockItems = products.filter(p => p.status === 'out_of_stock').length;
         
-        setMetrics({
+        const newMetrics = {
           totalProducts,
           totalQuantity,
           totalValue,
           activeItems,
           lowStockItems,
-          outOfStockItems
-        });
+          outOfStockItems,
+          soldStockValue
+        };
+        
+        console.log('InventoryDetailedOverview: Updated metrics:', newMetrics);
+        setMetrics(newMetrics);
       }
     } catch (error) {
       console.error('Error fetching inventory metrics:', error);
@@ -83,7 +113,7 @@ export default function InventoryDetailedOverview({ className = '', refresh = 0 
   return (
     <div className={className}>
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
-        <div className="grid grid-cols-6 gap-2 p-2">
+        <div className="grid grid-cols-6 md:grid-cols-7 gap-2 p-2">
           <MetricCard 
             title="Total Products" 
             value={metrics.totalProducts.toString()} 
@@ -101,6 +131,12 @@ export default function InventoryDetailedOverview({ className = '', refresh = 0 
             value={formatCurrency(metrics.totalValue)} 
             color="purple"
             icon="dollar"
+          />
+          <MetricCard 
+            title="Sold Value" 
+            value={formatCurrency(metrics.soldStockValue)} 
+            color="emerald"
+            icon="chart"
           />
           <MetricCard 
             title="Active Items" 
@@ -129,8 +165,8 @@ export default function InventoryDetailedOverview({ className = '', refresh = 0 
 interface MetricCardProps {
   title: string;
   value: string;
-  color: 'blue' | 'indigo' | 'purple' | 'teal' | 'amber' | 'red';
-  icon: 'cube' | 'stack' | 'dollar' | 'check' | 'warning' | 'x';
+  color: 'blue' | 'indigo' | 'purple' | 'teal' | 'amber' | 'red' | 'emerald';
+  icon: 'cube' | 'stack' | 'dollar' | 'check' | 'warning' | 'x' | 'chart';
 }
 
 function MetricCard({ title, value, color, icon }: MetricCardProps) {
@@ -140,7 +176,8 @@ function MetricCard({ title, value, color, icon }: MetricCardProps) {
     purple: 'border-purple-300 text-purple-700 bg-purple-50',
     teal: 'border-teal-300 text-teal-700 bg-teal-50',
     amber: 'border-amber-300 text-amber-700 bg-amber-50',
-    red: 'border-red-300 text-red-700 bg-red-50'
+    red: 'border-red-300 text-red-700 bg-red-50',
+    emerald: 'border-emerald-300 text-emerald-700 bg-emerald-50'
   };
 
   const renderIcon = () => {
@@ -179,6 +216,12 @@ function MetricCard({ title, value, color, icon }: MetricCardProps) {
         return (
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+      case 'chart':
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         );
       default:

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 interface UploadedItem {
   name: string;
@@ -31,7 +32,20 @@ export default function UploadInventoryClient() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successCount, setSuccessCount] = useState(0);
   const [templateType, setTemplateType] = useState<'basic' | 'advanced'>('basic');
+  const [userId, setUserId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const supabaseClient = createClientComponentClient();
+
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, [supabaseClient]);
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -136,6 +150,15 @@ export default function UploadInventoryClient() {
 
   const handleConfirmUpload = async () => {
     setIsProcessing(true);
+    
+    // Check if user is authenticated
+    if (!userId) {
+      setErrorMessage('You must be logged in to upload inventory');
+      setUploadStatus('error');
+      setIsProcessing(false);
+      return;
+    }
+    
     try {
       let successfulUploads = 0;
 
@@ -144,7 +167,7 @@ export default function UploadInventoryClient() {
       for (let i = 0; i < previewData.length; i += batchSize) {
         const batch = previewData.slice(i, i + batchSize);
         
-        const { error } = await supabase.from('products').insert(
+        const { error } = await supabaseClient.from('products').insert(
           batch.map(item => ({
             name: item.name,
             product_name: item.product_name,
@@ -160,11 +183,15 @@ export default function UploadInventoryClient() {
             image_url: item.image_url,
             status: item.status,
             remarks: item.remarks,
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            user_id: userId // Add the user_id to each product
           }))
         );
 
-        if (error) throw error;
+        if (error) {
+          console.error('Upload error details:', error);
+          throw error;
+        }
         successfulUploads += batch.length;
       }
 

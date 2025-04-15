@@ -1,206 +1,150 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import { calculateSalesVelocity } from '../utils/auto-reorder';
-import { formatCurrency } from '../utils/calculations';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
-import EditInventoryItemModal from './EditInventoryItemModal';
+import { formatCurrency } from '../utils/calculations';
 
 interface InventoryManagementProps {
   className?: string;
-  limit?: number;
+  refresh?: number;
 }
 
-interface InventoryItem {
-  id: string;
-  name: string;
-  quantity: number;
-  cost_per_item: number;
-  purchase_date: string;
-  source: string;
-  daysRemaining: number;
-  velocityTrend: 'increasing' | 'stable' | 'decreasing';
-  healthStatus: 'critical' | 'warning' | 'good' | 'overstocked';
-}
-
-interface InventoryMetrics {
-  totalItems: number;
-  totalValue: number;
-  criticalItems: number;
-  warningItems: number;
-  healthyItems: number;
-  overstockedItems: number;
-  averageDaysRemaining: number;
-}
-
-export default function InventoryManagement({ className = '', limit = 5 }: InventoryManagementProps) {
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [metrics, setMetrics] = useState<InventoryMetrics>({
-    totalItems: 0,
-    totalValue: 0,
-    criticalItems: 0,
-    warningItems: 0,
-    healthyItems: 0,
-    overstockedItems: 0,
-    averageDaysRemaining: 0
-  });
+export default function InventoryManagement({ className = '', refresh = 0 }: InventoryManagementProps) {
+  const [inventory, setInventory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'value' | 'date'>('quantity');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editItemId, setEditItemId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+  
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
 
   useEffect(() => {
-    loadInventoryData();
-  }, [limit]);
+    if (userId) {
+      console.log('InventoryManagement: User ID available, fetching data...');
+      fetchInventory();
+    }
+  }, [refresh, userId]);
 
-  async function loadInventoryData() {
+  const fetchInventory = async () => {
     try {
       setIsLoading(true);
       setError(null);
-
-      // Fetch products
-      const { data: productsData, error: productsError } = await supabase
+      console.log('InventoryManagement: Fetching inventory data from database...');
+      
+      // Fetch products for the current user
+      const { data, error } = await supabase
         .from('products')
-        .select('*');
-
-      if (productsError) throw productsError;
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
       
-      // Ensure products is an array
-      const products = Array.isArray(productsData) ? productsData : [];
-
-      // Fetch sales
-      const { data: salesData, error: salesError } = await supabase
-        .from('sales')
-        .select('*');
-
-      if (salesError) throw salesError;
+      if (error) throw error;
       
-      // Ensure sales is an array
-      const sales = Array.isArray(salesData) ? salesData : [];
-
-      // Calculate inventory health metrics
-      const inventoryWithHealth: InventoryItem[] = products.map(product => {
-        const velocity = calculateSalesVelocity(sales, product.id);
-        const daysRemaining = product.quantity / Math.max(velocity.dailyAverage, 0.01);
+      if (data) {
+        console.log(`InventoryManagement: Retrieved ${data.length} products from database`);
         
-        let healthStatus: 'critical' | 'warning' | 'good' | 'overstocked';
-        if (daysRemaining <= 7) {
-          healthStatus = 'critical';
-        } else if (daysRemaining <= 14) {
-          healthStatus = 'warning';
-        } else if (daysRemaining <= 60) {
-          healthStatus = 'good';
-        } else {
-          healthStatus = 'overstocked';
-        }
-
-        return {
-          id: product.id,
-          name: product.name,
-          quantity: product.quantity,
-          cost_per_item: product.cost_per_item,
-          purchase_date: product.purchase_date,
-          source: product.source,
-          daysRemaining: Math.ceil(daysRemaining),
-          velocityTrend: velocity.trend,
-          healthStatus
-        };
-      });
-
-      // Calculate aggregated metrics
-      const metrics: InventoryMetrics = {
-        totalItems: products.length,
-        totalValue: products.reduce((sum, product) => sum + (product.quantity * product.cost_per_item), 0),
-        criticalItems: inventoryWithHealth.filter(item => item.healthStatus === 'critical').length,
-        warningItems: inventoryWithHealth.filter(item => item.healthStatus === 'warning').length,
-        healthyItems: inventoryWithHealth.filter(item => item.healthStatus === 'good').length,
-        overstockedItems: inventoryWithHealth.filter(item => item.healthStatus === 'overstocked').length,
-        averageDaysRemaining: inventoryWithHealth.reduce((sum, item) => sum + item.daysRemaining, 0) / 
-          (inventoryWithHealth.length || 1)
-      };
-
-      // Apply sorting
-      sortInventoryItems(inventoryWithHealth);
-
-      setInventoryItems(inventoryWithHealth);
-      setMetrics(metrics);
+        // Add health status for each product (example logic - you can adjust as needed)
+        const productsWithHealth = data.map(product => {
+          let healthStatus = 'good';
+          let daysRemaining = 30; // Default value
+          
+          if (product.quantity <= 0) {
+            healthStatus = 'critical';
+            daysRemaining = 0;
+          } else if (product.quantity < 5) {
+            healthStatus = 'warning';
+            daysRemaining = 7;
+          } else if (product.quantity > 50) {
+            healthStatus = 'overstocked';
+            daysRemaining = 90;
+          }
+          
+          return {
+            ...product,
+            healthStatus,
+            daysRemaining
+          };
+        });
+        
+        setInventory(productsWithHealth);
+      }
     } catch (err) {
-      console.error('Error loading inventory data:', err);
+      console.error('Error fetching inventory:', err);
       setError('Failed to load inventory data');
     } finally {
       setIsLoading(false);
     }
-  }
-
-  // Function to sort inventory items
-  const sortInventoryItems = (items: InventoryItem[]) => {
-    const sorted = [...items].sort((a, b) => {
-      if (sortBy === 'name') {
-        return sortOrder === 'asc' 
-          ? a.name.localeCompare(b.name)
-          : b.name.localeCompare(a.name);
-      } else if (sortBy === 'quantity') {
-        return sortOrder === 'asc'
-          ? a.quantity - b.quantity
-          : b.quantity - a.quantity;
-      } else if (sortBy === 'value') {
-        const aValue = a.quantity * a.cost_per_item;
-        const bValue = b.quantity * b.cost_per_item;
-        return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
-      } else if (sortBy === 'date') {
-        return sortOrder === 'asc'
-          ? new Date(a.purchase_date).getTime() - new Date(b.purchase_date).getTime()
-          : new Date(b.purchase_date).getTime() - new Date(a.purchase_date).getTime();
-      }
-      // Default sort by health status (critical first)
-      const statusOrder = { 'critical': 0, 'warning': 1, 'good': 2, 'overstocked': 3 };
-      return statusOrder[a.healthStatus] - statusOrder[b.healthStatus];
-    });
-    
-    return sorted;
-  };
-
-  // Handle sort click
-  const handleSortClick = (column: 'name' | 'quantity' | 'value' | 'date') => {
-    if (sortBy === column) {
-      // Toggle order if same column
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      // Set new column with default desc order
-      setSortBy(column);
-      setSortOrder('desc');
-    }
-    
-    // Apply sort to current items
-    const sorted = sortInventoryItems(inventoryItems);
-    setInventoryItems(sorted);
-  };
-
-  // Filter items by search query
-  const filteredItems = searchQuery
-    ? inventoryItems.filter(item => 
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.source.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : inventoryItems;
-
-  // Get limited items for display
-  const displayItems = filteredItems.slice(0, limit);
-
-  // Add function to handle edit button click
-  const handleEditClick = (id: string) => {
-    setEditItemId(id);
-    setShowEditModal(true);
   };
   
-  // Add function to refresh data after edit
-  const handleItemUpdated = () => {
-    loadInventoryData();
+  // Sorting function
+  const sortByField = (a: any, b: any, field: string): number => {
+    if (field === 'name') {
+      return sortOrder === 'asc' 
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name);
+    }
+    
+    if (field === 'quantity') {
+      return sortOrder === 'asc' 
+        ? a.quantity - b.quantity
+        : b.quantity - a.quantity;
+    }
+    
+    if (field === 'value') {
+      const valueA = a.quantity * a.cost_per_item;
+      const valueB = b.quantity * b.cost_per_item;
+      return sortOrder === 'asc' ? valueA - valueB : valueB - valueA;
+    }
+    
+    if (field === 'date') {
+      const dateA = new Date(a.purchase_date || a.created_at).getTime();
+      const dateB = new Date(b.purchase_date || b.created_at).getTime();
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    }
+    
+    return 0;
   };
+  
+  // Handle sort button clicks
+  const handleSortClick = (field: string) => {
+    if (sortBy === field) {
+      // If already sorting by this field, toggle order
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // If sorting by a new field, set it and default to ascending
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+  
+  // Filter and sort the inventory items
+  const displayItems = inventory
+    .filter(item => {
+      if (!searchQuery) return true;
+      
+      const searchLower = searchQuery.toLowerCase();
+      return (
+        (item.name && item.name.toLowerCase().includes(searchLower)) ||
+        (item.source && item.source.toLowerCase().includes(searchLower)) ||
+        (item.supplier && item.supplier.toLowerCase().includes(searchLower))
+      );
+    })
+    .sort((a, b) => sortByField(a, b, sortBy))
+    .slice(0, 10); // Limit to 10 items
 
   if (isLoading) {
     return (
@@ -254,25 +198,25 @@ export default function InventoryManagement({ className = '', limit = 5 }: Inven
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           <div className="bg-white rounded-lg p-3 border border-slate-100 shadow-sm">
             <p className="text-sm text-slate-500 mb-1">Total Products</p>
-            <p className="text-2xl font-semibold text-slate-800">{metrics.totalItems}</p>
+            <p className="text-2xl font-semibold text-slate-800">{inventory.length}</p>
           </div>
           <div className="bg-white rounded-lg p-3 border border-slate-100 shadow-sm">
             <p className="text-sm text-slate-500 mb-1">Total Value</p>
-            <p className="text-2xl font-semibold text-primary-600">{formatCurrency(metrics.totalValue)}</p>
+            <p className="text-2xl font-semibold text-primary-600">{formatCurrency(inventory.reduce((sum, product) => sum + (product.quantity * product.cost_per_item), 0))}</p>
           </div>
           <div 
             className="bg-gradient-to-r from-red-50 to-white rounded-lg p-3 border border-red-100 shadow-sm"
             title="Products requiring immediate reorder"
           >
             <p className="text-sm text-red-500 mb-1">Critical Items</p>
-            <p className="text-2xl font-semibold text-red-600">{metrics.criticalItems}</p>
+            <p className="text-2xl font-semibold text-red-600">{inventory.filter(item => item.healthStatus === 'critical').length}</p>
           </div>
           <div 
             className="bg-gradient-to-r from-orange-50 to-white rounded-lg p-3 border border-orange-100 shadow-sm"
             title="Products to monitor closely"
           >
             <p className="text-sm text-orange-500 mb-1">Warning Items</p>
-            <p className="text-2xl font-semibold text-orange-500">{metrics.warningItems}</p>
+            <p className="text-2xl font-semibold text-orange-500">{inventory.filter(item => item.healthStatus === 'warning').length}</p>
           </div>
         </div>
 
@@ -438,18 +382,15 @@ export default function InventoryManagement({ className = '', limit = 5 }: Inven
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-900">
                         {formatCurrency(item.cost_per_item)}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-900">
                         {formatCurrency(totalValue)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                        <button 
-                          onClick={() => handleEditClick(item.id)}
+                        <Link 
+                          href={`/inventory?edit=${item.id}`} 
                           className="text-primary-600 hover:text-primary-900 mr-3"
                         >
                           Edit
-                        </button>
-                        <Link href={`/inventory?delete=${item.id}`} className="text-red-600 hover:text-red-900">
-                          Delete
                         </Link>
                       </td>
                     </tr>
@@ -467,14 +408,6 @@ export default function InventoryManagement({ className = '', limit = 5 }: Inven
           </Link>
         </div>
       </div>
-
-      {/* Edit Item Modal */}
-      <EditInventoryItemModal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        onItemUpdated={handleItemUpdated}
-        itemId={editItemId}
-      />
     </div>
   );
 } 

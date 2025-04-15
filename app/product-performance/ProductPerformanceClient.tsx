@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import Link from 'next/link';
 
@@ -13,6 +13,7 @@ interface ProductPerformance {
   totalProfit: number;
   profitMargin: number;
   roi: number;
+  salesOnlyRoi: number;
   lastOrderDate: string;
   orderCount: number;
   avgQuantityPerOrder: number;
@@ -22,6 +23,19 @@ export default function ProductPerformanceClient() {
   const [products, setProducts] = useState<ProductPerformance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+  
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
   
   // Independent sort states for each table
   const [mainSortField, setMainSortField] = useState<keyof ProductPerformance>('totalQuantity');
@@ -37,22 +51,27 @@ export default function ProductPerformanceClient() {
   const [showInsights, setShowInsights] = useState(false);
 
   useEffect(() => {
-    fetchProductPerformance();
-  }, []);
+    if (userId) {
+      console.log('ProductPerformanceClient: User ID available, fetching data...');
+      fetchProductPerformance();
+    }
+  }, [userId]);
 
   const fetchProductPerformance = async () => {
     try {
       setIsLoading(true);
+      console.log('ProductPerformanceClient: Fetching order data...');
       
       // Direct SQL query to get product performance from orders table
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select('*')
+        .eq('user_id', userId)
         .order('order_date', { ascending: false });
         
       if (orderError) throw orderError;
       
-      console.log(`Found ${orderData?.length || 0} orders in database`);
+      console.log(`ProductPerformanceClient: Found ${orderData?.length || 0} orders in database`);
       
       if (!orderData || orderData.length === 0) {
         // If no orders are found, display an error
@@ -93,6 +112,7 @@ export default function ProductPerformanceClient() {
             totalProfit: Number(order.net_profit) || 0,
             profitMargin: 0, // Will calculate below
             roi: Number(order.roi) || 0,
+            salesOnlyRoi: 0, // Will calculate below
             lastOrderDate: order.order_date,
             orderCount: 1,
             avgQuantityPerOrder: 0 // Will calculate below
@@ -109,6 +129,11 @@ export default function ProductPerformanceClient() {
         // Calculate average quantity per order
         product.avgQuantityPerOrder = product.orderCount > 0 ?
           product.totalQuantity / product.orderCount : 0;
+          
+        // Calculate Sales-Only ROI
+        const costOfSoldUnits = product.totalRevenue - product.totalProfit;
+        product.salesOnlyRoi = costOfSoldUnits > 0 ?
+          (product.totalProfit / costOfSoldUnits) * 100 : 0;
           
         return product;
       });
@@ -333,6 +358,56 @@ export default function ProductPerformanceClient() {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
+  // Add this CSV export function after the truncateText function
+  const exportTableToCSV = (data: ProductPerformance[], filename: string) => {
+    // Define headers for the CSV
+    const headers = [
+      'Product Name',
+      'SKU',
+      'Quantity Sold',
+      'Total Revenue',
+      'Total Profit',
+      'Profit Margin (%)',
+      'ROI (%)',
+      'Sales-Only ROI (%)',
+      'Last Order Date',
+      'Order Count',
+      'Avg Quantity Per Order'
+    ];
+    
+    // Create rows from product data
+    const rows = data.map(product => [
+      `"${product.name.replace(/"/g, '""')}"`, // Escape double quotes in CSV
+      `"${product.sku}"`,
+      product.totalQuantity,
+      product.totalRevenue.toFixed(2),
+      product.totalProfit.toFixed(2),
+      product.profitMargin.toFixed(1),
+      product.roi.toFixed(1),
+      product.salesOnlyRoi.toFixed(1),
+      new Date(product.lastOrderDate).toLocaleDateString(),
+      product.orderCount,
+      product.avgQuantityPerOrder.toFixed(1)
+    ]);
+    
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+    
+    // Create a blob and initiate download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Insights modal component
   const InsightsModal = () => {
     if (!selectedProduct) return null;
@@ -449,6 +524,19 @@ export default function ProductPerformanceClient() {
                       {formatCurrency(selectedProduct.totalProfit / selectedProduct.orderCount)}
                     </p>
                   </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500">Sales-Only ROI</p>
+                    <p className="mt-1 text-lg font-medium text-gray-900">
+                      {selectedProduct.salesOnlyRoi.toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-gray-500">Based only on sold units</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500">Cost of Sold Units</p>
+                    <p className="mt-1 text-lg font-medium text-gray-900">
+                      {formatCurrency(selectedProduct.totalRevenue - selectedProduct.totalProfit)}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -496,6 +584,15 @@ export default function ProductPerformanceClient() {
             View Orders
           </Link>
           <button
+            onClick={() => exportTableToCSV(products, 'all-products-performance')}
+            className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded inline-flex items-center"
+          >
+            <svg className="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+            Export CSV
+          </button>
+          <button
             onClick={fetchProductPerformance}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded inline-flex items-center"
           >
@@ -525,13 +622,25 @@ export default function ProductPerformanceClient() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Best Performers */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-4 py-5 border-b border-gray-200 bg-green-50">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">
-              Top 5 Best Performing Products
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Based on {bestSortField === 'profitMargin' ? 'profit margin' : bestSortField}
-            </p>
+          <div className="px-4 py-5 border-b border-gray-200 bg-green-50 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                Top 5 Best Performing Products
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Based on {bestSortField === 'profitMargin' ? 'profit margin' : bestSortField}
+              </p>
+            </div>
+            <button
+              onClick={() => exportTableToCSV(bestPerformers, 'best-performers')}
+              className="bg-green-600 hover:bg-green-700 text-white rounded p-1 inline-flex items-center text-sm"
+              title="Export to CSV"
+            >
+              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+              <span className="ml-1">CSV</span>
+            </button>
           </div>
           
           <div className="overflow-visible">
@@ -569,6 +678,12 @@ export default function ProductPerformanceClient() {
                     ROI {bestSortField === 'roi' && (bestSortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
+                    onClick={() => handleBestSort('salesOnlyRoi')} 
+                    className="w-[10%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Sales ROI {bestSortField === 'salesOnlyRoi' && (bestSortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
                     onClick={() => handleBestSort('totalProfit')} 
                     className="w-[10%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   >
@@ -601,13 +716,14 @@ export default function ProductPerformanceClient() {
                         </span>
                       </td>
                       <td className="px-2 py-3 text-sm text-right text-gray-900">{product.roi.toFixed(1)}%</td>
+                      <td className="px-2 py-3 text-sm text-right text-gray-900">{product.salesOnlyRoi.toFixed(1)}%</td>
                       <td className="px-2 py-3 text-sm text-right text-gray-900">{formatCurrency(product.totalProfit)}</td>
                       <td className="px-2 py-3 text-sm text-right text-gray-500">{product.avgQuantityPerOrder.toFixed(1)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
+                    <td colSpan={8} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
                   </tr>
                 )}
               </tbody>
@@ -617,13 +733,25 @@ export default function ProductPerformanceClient() {
         
         {/* Worst Performers */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-4 py-5 border-b border-gray-200 bg-red-50">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">
-              Top 5 Worst Performing Products
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Based on {worstSortField === 'profitMargin' ? 'profit margin' : worstSortField}
-            </p>
+          <div className="px-4 py-5 border-b border-gray-200 bg-red-50 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg leading-6 font-medium text-gray-900">
+                Top 5 Worst Performing Products
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Based on {worstSortField === 'profitMargin' ? 'profit margin' : worstSortField}
+              </p>
+            </div>
+            <button
+              onClick={() => exportTableToCSV(worstPerformers, 'worst-performers')}
+              className="bg-red-600 hover:bg-red-700 text-white rounded p-1 inline-flex items-center text-sm"
+              title="Export to CSV"
+            >
+              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+              <span className="ml-1">CSV</span>
+            </button>
           </div>
           
           <div className="overflow-visible">
@@ -661,6 +789,12 @@ export default function ProductPerformanceClient() {
                     ROI {worstSortField === 'roi' && (worstSortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
+                    onClick={() => handleWorstSort('salesOnlyRoi')} 
+                    className="w-[10%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Sales ROI {worstSortField === 'salesOnlyRoi' && (worstSortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
                     onClick={() => handleWorstSort('totalProfit')} 
                     className="w-[10%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                   >
@@ -693,13 +827,14 @@ export default function ProductPerformanceClient() {
                         </span>
                       </td>
                       <td className="px-2 py-3 text-sm text-right text-gray-900">{product.roi.toFixed(1)}%</td>
+                      <td className="px-2 py-3 text-sm text-right text-gray-900">{product.salesOnlyRoi.toFixed(1)}%</td>
                       <td className="px-2 py-3 text-sm text-right text-gray-900">{formatCurrency(product.totalProfit)}</td>
                       <td className="px-2 py-3 text-sm text-right text-gray-500">{product.avgQuantityPerOrder.toFixed(1)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
+                    <td colSpan={8} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
                   </tr>
                 )}
               </tbody>
@@ -710,13 +845,25 @@ export default function ProductPerformanceClient() {
       
       {/* All Products */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-4 py-5 border-b border-gray-200">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">
-            All Products Performance
-          </h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Complete list of all products and their performance metrics
-          </p>
+        <div className="px-4 py-5 border-b border-gray-200 flex justify-between items-center">
+          <div>
+            <h3 className="text-lg leading-6 font-medium text-gray-900">
+              All Products Performance
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Complete list of all products and their performance metrics
+            </p>
+          </div>
+          <button
+            onClick={() => exportTableToCSV(sortedAllProducts, 'all-products')}
+            className="bg-blue-600 hover:bg-blue-700 text-white rounded p-1 inline-flex items-center text-sm"
+            title="Export to CSV"
+          >
+            <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+            <span className="ml-1">CSV</span>
+          </button>
         </div>
         
         <div className="overflow-visible">
@@ -766,6 +913,12 @@ export default function ProductPerformanceClient() {
                   ROI {mainSortField === 'roi' && (mainSortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 <th 
+                  className="w-[8%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleMainSort('salesOnlyRoi')}
+                >
+                  Sales ROI {mainSortField === 'salesOnlyRoi' && (mainSortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
                   onClick={() => handleMainSort('lastOrderDate')} 
                   className="w-[13%] px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
@@ -800,6 +953,9 @@ export default function ProductPerformanceClient() {
                       </span>
                     </td>
                     <td className="px-2 py-3 text-sm text-right text-gray-900">{product.roi.toFixed(1)}%</td>
+                    <td className="px-2 py-3 text-sm text-right text-gray-900">
+                      {product.salesOnlyRoi.toFixed(1)}%
+                    </td>
                     <td className="px-2 py-3 text-sm text-right text-gray-500">
                       {new Date(product.lastOrderDate).toLocaleDateString()}
                     </td>
@@ -808,7 +964,7 @@ export default function ProductPerformanceClient() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
+                  <td colSpan={10} className="px-2 py-4 text-center text-sm text-gray-500">No products found.</td>
                 </tr>
               )}
             </tbody>

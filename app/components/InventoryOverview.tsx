@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 
 interface InventoryOverviewProps {
@@ -18,23 +18,42 @@ export default function InventoryOverview({ className = '' }: InventoryOverviewP
     totalSuppliers: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+
+  // Get the current user's ID
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    getUserId();
+  }, []);
 
   useEffect(() => {
-    fetchInventoryMetrics();
-  }, []);
+    if (userId) {
+      console.log('InventoryOverview: User ID available, fetching data...');
+      fetchInventoryMetrics();
+    }
+  }, [userId]);
 
   async function fetchInventoryMetrics() {
     try {
       setIsLoading(true);
       
-      // Fetch all products
+      // Fetch products for the current user
       const { data: products, error } = await supabase
         .from('products')
-        .select('*');
+        .select('*')
+        .eq('user_id', userId);
       
       if (error) throw error;
       
       if (products) {
+        console.log(`InventoryOverview: Retrieved ${products.length} products from database`);
+        
         // Calculate metrics
         const totalProducts = products.length;
         const totalValue = products.reduce((sum, product) => 
@@ -58,6 +77,16 @@ export default function InventoryOverview({ className = '' }: InventoryOverviewP
           outOfStockItems,
           activeItems,
           totalSuppliers: suppliers.size
+        });
+      } else {
+        // Reset metrics if no products found
+        setMetrics({
+          totalProducts: 0,
+          totalValue: 0,
+          lowStockItems: 0,
+          outOfStockItems: 0,
+          activeItems: 0,
+          totalSuppliers: 0
         });
       }
     } catch (error) {

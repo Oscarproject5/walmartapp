@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { getCurrentUserId } from '../lib/supabase';
 
 interface AddInventoryItemModalProps {
   isOpen: boolean;
@@ -61,6 +62,12 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (success || isLoading) {
+      return;
+    }
+    
     setError(null);
     setSuccess(false);
     
@@ -78,24 +85,90 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
     try {
       setIsLoading(true);
       
-      // Calculate stock value
-      const stockValue = formData.quantity * formData.cost_per_item;
+      // Get current user ID
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
       
-      // Insert new inventory item
-      const { data, error } = await supabase
+      // First check if the product with the same SKU already exists for this user
+      const { data: existingProduct, error: lookupError } = await supabase
         .from('products')
-        .insert([{
-          ...formData,
-          name: formData.product_name,
-          available_qty: formData.quantity,
-          stock_value: stockValue,
-          per_qty_price: formData.cost_per_item,
-          purchase_price: formData.cost_per_item * formData.quantity,
-          created_at: new Date().toISOString()
-        }])
-        .select();
+        .select('id, product_sku')
+        .eq('product_sku', formData.product_sku)
+        .eq('user_id', userId)
+        .maybeSingle();
       
-      if (error) throw error;
+      if (lookupError) throw lookupError;
+      
+      let productId: string;
+      
+      if (existingProduct) {
+        // Product already exists, use its ID
+        productId = existingProduct.id;
+        
+        // Optionally update the product details
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({
+            product_name: formData.product_name,
+            name: formData.product_name,
+            source: formData.source,
+            supplier: formData.supplier,
+            product_link: formData.product_link,
+            remarks: formData.remarks,
+            status: formData.status,
+            // Note: We don't update quantity, cost_per_item, etc. here as those are 
+            // calculated automatically by triggers based on batches
+          })
+          .eq('id', productId)
+          .eq('user_id', userId);
+        
+        if (updateError) throw updateError;
+        
+      } else {
+        // Product doesn't exist, create it first
+        const { data: newProduct, error: insertError } = await supabase
+          .from('products')
+          .insert([{
+            name: formData.product_name,
+            product_name: formData.product_name,
+            product_sku: formData.product_sku,
+            source: formData.source,
+            supplier: formData.supplier,
+            product_link: formData.product_link,
+            remarks: formData.remarks,
+            status: formData.status,
+            quantity: 0, // Will be updated by trigger based on batch
+            available_qty: 0, // Will be updated by trigger based on batch
+            cost_per_item: 0, // Will be updated by trigger based on batch
+            stock_value: 0, // Will be updated by trigger based on batch
+            purchase_date: formData.purchase_date,
+            user_id: userId
+          }])
+          .select();
+        
+        if (insertError) throw insertError;
+        if (!newProduct || newProduct.length === 0) {
+          throw new Error('Failed to create product record');
+        }
+        
+        productId = newProduct[0].id;
+      }
+      
+      // Now create a batch entry for this product
+      const { error: batchError } = await supabase
+        .from('product_batches')
+        .insert([{
+          product_id: productId,
+          purchase_date: formData.purchase_date,
+          quantity_purchased: formData.quantity,
+          quantity_available: formData.quantity, // Initially all purchased inventory is available
+          cost_per_item: formData.cost_per_item,
+          user_id: userId
+        }]);
+      
+      if (batchError) throw batchError;
       
       setSuccess(true);
       
@@ -174,6 +247,9 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
                   className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                   required
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Note: If a product with this SKU already exists, a new batch will be added to it.
+                </p>
               </div>
               
               <div>
@@ -254,7 +330,6 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
                   <option value="walmart">Walmart</option>
                   <option value="amazon">Amazon</option>
                   <option value="sams_club">Sam's Club</option>
-                  <option value="other">Other</option>
                 </select>
               </div>
               
@@ -272,64 +347,54 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
-                  <option value="discontinued">Discontinued</option>
                 </select>
-              </div>
-              
-              <div>
-                <label htmlFor="product_link" className="block text-sm font-medium text-gray-700 mb-1">
-                  Product Link
-                </label>
-                <input
-                  type="url"
-                  id="product_link"
-                  name="product_link"
-                  value={formData.product_link}
-                  onChange={handleInputChange}
-                  placeholder="https://"
-                  className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                />
-              </div>
-              
-              <div className="md:col-span-2">
-                <label htmlFor="remarks" className="block text-sm font-medium text-gray-700 mb-1">
-                  Remarks
-                </label>
-                <textarea
-                  id="remarks"
-                  name="remarks"
-                  rows={3}
-                  value={formData.remarks}
-                  onChange={handleInputChange}
-                  className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
-                ></textarea>
               </div>
             </div>
             
-            <div className="flex justify-end space-x-3 pt-4">
+            <div>
+              <label htmlFor="product_link" className="block text-sm font-medium text-gray-700 mb-1">
+                Product Link
+              </label>
+              <input
+                type="url"
+                id="product_link"
+                name="product_link"
+                value={formData.product_link}
+                onChange={handleInputChange}
+                className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="remarks" className="block text-sm font-medium text-gray-700 mb-1">
+                Remarks
+              </label>
+              <textarea
+                id="remarks"
+                name="remarks"
+                value={formData.remarks}
+                onChange={handleInputChange}
+                rows={3}
+                className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              />
+            </div>
+            
+            <div className="flex justify-end space-x-3">
               <button
                 type="button"
                 onClick={handleClose}
-                className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isLoading}
-                className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white ${
-                  isLoading ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
-                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
+                disabled={isLoading || success}
+                className={`px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                  (isLoading || success) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
-                {isLoading ? (
-                  <span className="flex items-center">
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Saving...
-                  </span>
-                ) : 'Add Item'}
+                {isLoading ? 'Adding...' : success ? 'Added!' : 'Add Item'}
               </button>
             </div>
           </form>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { withUserAuth } from '../../lib/api-helpers';
 
 // Configure OpenAI client for OpenRouter
 const openai = new OpenAI({
@@ -29,7 +30,8 @@ interface ProductPerformanceData {
   quantity_trend?: number;
 }
 
-export async function POST(request: NextRequest) {
+// Wrap the handler with user auth middleware
+export const POST = withUserAuth(async (request: NextRequest, { userId }) => {
   try {
     const { products }: { products: ProductPerformanceData[] } = await request.json();
 
@@ -75,7 +77,7 @@ Based on this data, including the recent trends, provide your top 3-5 recommenda
     // Switch to a model known for stronger reasoning
     const modelToUse = 'deepseek/deepseek-chat-v3-0324'; 
 
-    console.log(`[AI Suggestions API] Sending request to OpenRouter (${modelToUse}) with trend data...`);
+    console.log(`[AI Suggestions API] User ${userId} sending request to OpenRouter (${modelToUse}) with trend data...`);
     const completion = await openai.chat.completions.create({
       model: modelToUse, 
       messages: [
@@ -87,11 +89,20 @@ Based on this data, including the recent trends, provide your top 3-5 recommenda
     });
 
     const suggestion = completion.choices[0]?.message?.content;
-    console.log('[AI Suggestions API] Received suggestion from OpenRouter (with trends):', suggestion);
+    console.log(`[AI Suggestions API] User ${userId} received suggestion from OpenRouter (with trends):`, suggestion);
 
     if (!suggestion) {
       throw new Error('No suggestion received from AI');
     }
+
+    // Store the suggestion in database with user_id
+    const { supabase } = await getUserIdAndClient();
+    await supabase.from('ai_recommendations').insert({
+      recommendation_type: 'product_performance',
+      recommendation_text: suggestion,
+      is_applied: false,
+      user_id: userId
+    });
 
     return NextResponse.json({ suggestion });
 
@@ -102,4 +113,7 @@ Based on this data, including the recent trends, provide your top 3-5 recommenda
     // Check for specific OpenRouter error structures if necessary
     return NextResponse.json({ error: 'Failed to get AI suggestions via OpenRouter', details: errorMessage }, { status: 500 });
   }
-} 
+});
+
+// Import this to access the database
+import { getUserIdAndClient } from '../../lib/api-helpers'; 
