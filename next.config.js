@@ -16,14 +16,6 @@ const nextConfig = {
   experimental: {
     turbo: {},
   },
-  eslint: {
-    // Ignore ESLint errors during production build (still shows warnings)
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    // Ignore TypeScript errors during production build
-    ignoreBuildErrors: true,
-  },
 };
 
 module.exports = nextConfig; 
