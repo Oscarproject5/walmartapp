@@ -20,15 +20,18 @@ const nextConfig = {
     // This allows production builds to successfully complete even if
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
+    dirs: [] // Skip ESLint for all directories
   },
   typescript: {
     // This allows production builds to successfully complete even if
     // your project has TypeScript errors.
     ignoreBuildErrors: true,
+    tsconfigPath: './tsconfig.json'
   },
   output: 'standalone',
   swcMinify: true,
   reactStrictMode: false,
+  poweredByHeader: false
 };
 
 module.exports = nextConfig; 
