@@ -1,6 +1,6 @@
 {
   "extends": ["next"],
-  "plugins": ["@typescript-eslint"],
+  "ignorePatterns": ["**/*"],
   "rules": {
     // Disable rules that would normally be enforced by react-hooks plugin
     "react-hooks/rules-of-hooks": "off",

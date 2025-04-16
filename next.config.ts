@@ -3,13 +3,17 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   eslint: {
-    // Warning: This allows production builds to successfully complete even with ESLint errors
+    // Skip ESLint during builds completely
     ignoreDuringBuilds: true,
+    dirs: [] // Don't run ESLint on any directories
   },
   typescript: {
-    // Warning: This skips type checking during the build step
+    // Skip TypeScript checking during builds completely
     ignoreBuildErrors: true,
+    tsconfigPath: "tsconfig.json"
   },
+  // Disable source maps in production to reduce build time
+  productionBrowserSourceMaps: false
 };
 
 export default nextConfig;

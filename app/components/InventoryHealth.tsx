@@ -458,7 +458,15 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
 }
 
 // Helper components and functions
-function ActionCard({ title, description, icon, color, url }) {
+interface ActionCardProps {
+  title: string;
+  description: string;
+  icon: 'refresh' | 'chart' | 'users';
+  color: 'blue' | 'amber' | 'purple' | 'green' | 'red';
+  url: string;
+}
+
+function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
