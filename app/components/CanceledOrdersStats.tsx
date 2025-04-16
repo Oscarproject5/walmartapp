@@ -102,7 +102,6 @@ export default function CanceledOrdersStats() {
       if (data) {
         setAppSettings(data);
       } else {
-        // @ts-ignore - Adding user_id in the object below
         setAppSettings({
           id: '',
           shipping_base_cost: 5.00,
@@ -114,13 +113,11 @@ export default function CanceledOrdersStats() {
           openrouter_api_key: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          user_id: '',
         });
       }
     } catch (err) {
       console.error('Error loading app settings:', err);
       setError('Failed to load application settings.');
-      // @ts-ignore - Adding user_id in the object below
       setAppSettings({
         id: '',
         shipping_base_cost: 5.00,
@@ -132,7 +129,6 @@ export default function CanceledOrdersStats() {
         openrouter_api_key: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        user_id: '',
       });
     }
   };

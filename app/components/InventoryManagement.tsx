@@ -1,23 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { SupabaseClient, createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useState, useEffect } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 import { formatCurrency } from '../utils/calculations';
-
-interface Product {
-  id: string;
-  user_id: string;
-  name: string;
-  quantity: number;
-  cost_per_item: number;
-  purchase_date: string | null; // Assuming it can be null
-  created_at: string;
-  source: string;
-  supplier?: string; // Assuming supplier is optional
-  healthStatus: 'good' | 'warning' | 'critical' | 'overstocked';
-  daysRemaining: number;
-}
 
 interface InventoryManagementProps {
   className?: string;
@@ -25,14 +11,14 @@ interface InventoryManagementProps {
 }
 
 export default function InventoryManagement({ className = '', refresh = 0 }: InventoryManagementProps) {
-  const [inventory, setInventory] = useState<Product[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [searchQuery, setSearchQuery] = useState('');
-  const supabase: SupabaseClient<any> = createClientComponentClient();
+  const supabase = createClientComponentClient();
   
   // Get the current user's ID
   useEffect(() => {
@@ -43,11 +29,16 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
       }
     };
     getUserId();
-  }, [supabase, supabase.auth]);
+  }, []);
 
-  const fetchInventory = useCallback(async () => {
-    if (!userId) return; // Guard clause if userId is not yet available
+  useEffect(() => {
+    if (userId) {
+      console.log('InventoryManagement: User ID available, fetching data...');
+      fetchInventory();
+    }
+  }, [refresh, userId]);
 
+  const fetchInventory = async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -97,28 +88,10 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
     } finally {
       setIsLoading(false);
     }
-  }, [userId, supabase]);
-
-  useEffect(() => {
-    if (userId) {
-      console.log('InventoryManagement: User ID available, fetching data...');
-      fetchInventory();
-    }
-  }, [refresh, userId, fetchInventory]);
-
-  // Helper function for status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'critical': return 'bg-red-50 text-red-700 border-red-200';
-      case 'warning': return 'bg-orange-50 text-orange-700 border-orange-200';
-      case 'good': return 'bg-green-50 text-green-700 border-green-200';
-      case 'overstocked': return 'bg-blue-50 text-blue-700 border-blue-200';
-      default: return 'bg-slate-50 text-slate-700 border-slate-200';
-    }
   };
-
+  
   // Sorting function
-  const sortByField = (a: Product, b: Product, field: string): number => {
+  const sortByField = (a: any, b: any, field: string): number => {
     if (field === 'name') {
       return sortOrder === 'asc' 
         ? a.name.localeCompare(b.name)
@@ -354,7 +327,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
               ) : (
                 displayItems.map((item) => {
                   // Format the date for display
-                  const purchaseDate = new Date(item.purchase_date || item.created_at);
+                  const purchaseDate = new Date(item.purchase_date);
                   const formattedDate = purchaseDate.toLocaleDateString('en-US', {
                     month: 'numeric',
                     day: 'numeric',
@@ -363,6 +336,17 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
 
                   // Calculate total value
                   const totalValue = item.quantity * item.cost_per_item;
+
+                  // Get color based on health status
+                  const getStatusColor = (status: string) => {
+                    switch (status) {
+                      case 'critical': return 'bg-red-50 text-red-700 border-red-200';
+                      case 'warning': return 'bg-orange-50 text-orange-700 border-orange-200';
+                      case 'good': return 'bg-green-50 text-green-700 border-green-200';
+                      case 'overstocked': return 'bg-blue-50 text-blue-700 border-blue-200';
+                      default: return 'bg-slate-50 text-slate-700 border-slate-200';
+                    }
+                  };
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
