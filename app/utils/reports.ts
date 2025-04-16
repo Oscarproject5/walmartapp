@@ -1,6 +1,6 @@
 import { Sale, CanceledOrder } from './calculations';
 
-export interface ProfitData {
+interface ProfitData {
   date: string;
   revenue: number;
   profit: number;
@@ -9,7 +9,7 @@ export interface ProfitData {
   orders: number;
 }
 
-export interface ReportTotals {
+interface Totals {
   totalRevenue: number;
   totalProfit: number;
   totalLosses: number;
@@ -22,7 +22,7 @@ export function processSalesData(
   sales: Sale[],
   canceledOrders: CanceledOrder[],
   timeframe: 'daily' | 'monthly' = 'daily'
-): { data: ProfitData[]; totals: ReportTotals } {
+): { data: ProfitData[]; totals: Totals } {
   console.log('Processing sales data:', {
     salesCount: sales?.length || 0,
     canceledOrdersCount: canceledOrders?.length || 0,
