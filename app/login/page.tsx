@@ -1,17 +1,11 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../context/auth-context';
 
-// Loading component
-function Loading() {
-  return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
-}
-
-// Login form component that uses search params
-function LoginForm() {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -205,14 +199,5 @@ function LoginForm() {
         </form>
       </div>
     </div>
-  );
-}
-
-// Main component with Suspense boundary
-export default function Login() {
-  return (
-    <Suspense fallback={<Loading />}>
-      <LoginForm />
-    </Suspense>
   );
 } 

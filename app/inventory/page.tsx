@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
 import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
 
-// Component that uses search params
-function InventoryContent() {
+export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editItemId, setEditItemId] = useState<string | null>(null);
@@ -130,18 +129,5 @@ function InventoryContent() {
         itemId={editItemId}
       />
     </div>
-  );
-}
-
-// Loading fallback component
-function Loading() {
-  return <div className="p-4 text-center">Loading inventory...</div>;
-}
-
-export default function InventoryPage() {
-  return (
-    <Suspense fallback={<Loading />}>
-      <InventoryContent />
-    </Suspense>
   );
 } 

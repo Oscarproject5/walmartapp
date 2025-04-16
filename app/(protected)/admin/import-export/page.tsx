@@ -87,10 +87,8 @@ export default function ImportExport() {
         fileInputRef.current.value = '';
       }
       setImportFile(null);
-    } catch (error: unknown) {
-      let message = 'Failed to import data';
-      if (error instanceof Error) message = error.message;
-      setImportStatus(`Error: ${message}`);
+    } catch (error: any) {
+      setImportStatus(`Error: ${error.message || 'Failed to import data'}`);
       console.error('Import error:', error);
     } finally {
       setIsImporting(false);
@@ -167,10 +165,8 @@ export default function ImportExport() {
       document.body.removeChild(a);
       
       setExportStatus(`Successfully exported ${dataToExport.length} ${dataType} records`);
-    } catch (error: unknown) {
-      let message = 'Failed to export data';
-      if (error instanceof Error) message = error.message;
-      setExportStatus(`Error: ${message}`);
+    } catch (error: any) {
+      setExportStatus(`Error: ${error.message || 'Failed to export data'}`);
       console.error('Export error:', error);
     } finally {
       setIsExporting(false);

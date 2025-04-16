@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 
@@ -27,24 +27,6 @@ export default function InvitationsAdmin() {
   const [message, setMessage] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClientComponentClient();
-
-  const fetchInvitations = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('invitations')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setInvitations(data || []);
-    } catch (error: unknown) {
-      let message = 'Failed to fetch invitations';
-      if (error instanceof Error) message = error.message;
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [supabase]);
 
   useEffect(() => {
     const checkAdminStatus = async () => {
@@ -74,7 +56,25 @@ export default function InvitationsAdmin() {
     };
     
     checkAdminStatus();
-  }, [router, supabase, fetchInvitations]);
+  }, [router, supabase]);
+  
+  const fetchInvitations = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      
+      setInvitations(data || []);
+    } catch (error: any) {
+      setError(error.message || 'Failed to fetch invitations');
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   const generateRandomCode = () => {
     const characters = 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789';
@@ -143,11 +143,9 @@ export default function InvitationsAdmin() {
       setNewEmail('');
       setMakeAdmin(false);
       setExpiryDays(30);
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error('Invitation creation error:', error);
-      let message = 'Failed to create invitation';
-      if (error instanceof Error) message = error.message;
-      setError(message);
+      setError(error.message || 'Failed to create invitation');
     } finally {
       setCreating(false);
     }
@@ -164,10 +162,8 @@ export default function InvitationsAdmin() {
       
       // Refresh the invitations list
       fetchInvitations();
-    } catch (error: unknown) {
-      let message = 'Failed to revoke invitation';
-      if (error instanceof Error) message = error.message;
-      setError(message);
+    } catch (error: any) {
+      setError(error.message || 'Failed to revoke invitation');
     }
   };
   
