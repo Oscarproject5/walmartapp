@@ -17,16 +17,12 @@ const nextConfig = {
     turbo: {},
   },
   eslint: {
-    // This allows production builds to successfully complete even if
-    // your project has ESLint errors.
+    // Disable ESLint during builds
     ignoreDuringBuilds: true,
-    dirs: [] // Skip ESLint for all directories
   },
   typescript: {
-    // This allows production builds to successfully complete even if
-    // your project has TypeScript errors.
+    // Disable TypeScript type checking during builds
     ignoreBuildErrors: true,
-    tsconfigPath: './tsconfig.json'
   },
   output: 'standalone',
   swcMinify: true,
