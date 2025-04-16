@@ -3,16 +3,15 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
-import { User, AuthError } from '@supabase/supabase-js';
-import { ErrorResponse } from '../types';
+import { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: any | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: any | null }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
+  resetPassword: (email: string) => Promise<{ error: any | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession();
         setUser(session?.user || null);
       } catch (error) {
-        console.error('Error getting session:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('Error getting session:', error);
       } finally {
         setLoading(false);
       }
@@ -60,8 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       return { error };
     } catch (error) {
-      console.error('Error signing in:', error instanceof Error ? error.message : 'Unknown error');
-      return { error: error as AuthError };
+      console.error('Error signing in:', error);
+      return { error };
     }
   };
 
@@ -77,8 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       return { error };
     } catch (error) {
-      console.error('Error signing up:', error instanceof Error ? error.message : 'Unknown error');
-      return { error: error as AuthError };
+      console.error('Error signing up:', error);
+      return { error };
     }
   };
 
@@ -88,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push('/login');
       router.refresh();
     } catch (error) {
-      console.error('Error signing out:', error instanceof Error ? error.message : 'Unknown error');
+      console.error('Error signing out:', error);
     }
   };
 
@@ -100,8 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       return { error };
     } catch (error) {
-      console.error('Error resetting password:', error instanceof Error ? error.message : 'Unknown error');
-      return { error: error as AuthError };
+      console.error('Error resetting password:', error);
+      return { error };
     }
   };
 
