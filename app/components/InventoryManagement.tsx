@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { SupabaseClient, createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 import { formatCurrency } from '../utils/calculations';
 
@@ -32,7 +32,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [searchQuery, setSearchQuery] = useState('');
-  const supabase = createClientComponentClient();
+  const supabase: SupabaseClient<any> = createClientComponentClient();
   
   // Get the current user's ID
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function InventoryManagement({ className = '', refresh = 0 }: Inv
       }
     };
     getUserId();
-  }, [supabase]);
+  }, [supabase, supabase.auth]);
 
   const fetchInventory = useCallback(async () => {
     if (!userId) return; // Guard clause if userId is not yet available
