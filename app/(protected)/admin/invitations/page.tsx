@@ -32,49 +32,65 @@ export default function InvitationsAdmin() {
     setIsLoading(true);
     try {
       const { data, error } = await supabase
-        .from('invitations')
+        .from('invitation_codes')
         .select('*')
         .order('created_at', { ascending: false });
+
       if (error) throw error;
       setInvitations(data || []);
     } catch (error: unknown) {
       let message = 'Failed to fetch invitations';
-      if (error instanceof Error) message = error.message;
+      if (error instanceof Error) {
+        message = error.message;
+      }
       setError(message);
     } finally {
       setIsLoading(false);
     }
   }, [supabase]);
 
+  const checkAdminStatus = async () => {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            router.push('/login');
+            return;
+        }
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', session.user.id)
+            .single();
+        if (!profile?.is_admin) {
+            router.push('/dashboard');
+        }
+    } catch (error: unknown) {
+        let message = 'Failed to check admin status';
+        if (error instanceof Error) {
+            message = error.message;
+        }
+        console.error('Error checking admin status:', message);
+        setError(message);
+    }
+  };
+
   useEffect(() => {
-    const checkAdminStatus = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-      
-      // Check if user is an admin
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (error || !profile?.is_admin) {
-        setError('You do not have permission to access this page');
-        setIsAdmin(false);
-        setTimeout(() => router.push('/dashboard'), 3000);
-        return;
-      }
-      
-      setIsAdmin(true);
-      fetchInvitations();
-    };
-    
     checkAdminStatus();
-  }, [router, supabase, fetchInvitations]);
+  }, [router, supabase, fetchInvitations, checkAdminStatus]);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
   
   const generateRandomCode = () => {
     const characters = 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789';
@@ -85,12 +101,12 @@ export default function InvitationsAdmin() {
     return result;
   };
   
-  const handleCreateInvitation = async () => {
-    setError(null);
-    setCreating(true);
-    
+  const handleCreateInvitation = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       const code = generateRandomCode();
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() + parseInt(expiryDays.toString()));
       const expiresAt = expiryDays > 0 
         ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString() 
         : null;
@@ -118,15 +134,19 @@ export default function InvitationsAdmin() {
       
       // Create the invitation
       const { data, error } = await supabase
-        .from('invitations')
-        .insert({
-          code,
-          email: newEmail || null,
-          created_by: session.user.id,
-          expires_at: expiresAt,
-          is_admin: makeAdmin,
-          status: 'active'
-        });
+        .from('invitation_codes')
+        .insert([
+          {
+            code: code,
+            email: newEmail || null,
+            created_by: session.user.id,
+            expires_at: expiresAt,
+            is_admin: makeAdmin,
+            status: 'active'
+          },
+        ])
+        .select()
+        .single();
       
       if (error) {
         console.error('Error creating invitation:', error);
@@ -144,30 +164,33 @@ export default function InvitationsAdmin() {
       setMakeAdmin(false);
       setExpiryDays(30);
     } catch (error: unknown) {
-      console.error('Invitation creation error:', error);
+      console.error('Error creating invitation:', error);
       let message = 'Failed to create invitation';
-      if (error instanceof Error) message = error.message;
+      if (error instanceof Error) {
+        message = error.message;
+      }
       setError(message);
     } finally {
       setCreating(false);
     }
   };
   
-  const handleRevokeInvitation = async (id: string) => {
+  const handleRevokeInvitation = async (code: string) => {
     try {
-      const { error } = await supabase
-        .from('invitations')
-        .update({ status: 'revoked' })
-        .eq('id', id);
-        
-      if (error) throw error;
-      
-      // Refresh the invitations list
-      fetchInvitations();
+        const { error } = await supabase
+            .from('invitation_codes')
+            .update({ revoked: true })
+            .eq('code', code);
+
+        if (error) throw error;
+        await fetchInvitations();
     } catch (error: unknown) {
-      let message = 'Failed to revoke invitation';
-      if (error instanceof Error) message = error.message;
-      setError(message);
+        let message = 'Failed to revoke invitation';
+        if (error instanceof Error) {
+            message = error.message;
+        }
+        console.error('Error revoking invitation:', message);
+        setError(message);
     }
   };
   
@@ -340,7 +363,7 @@ export default function InvitationsAdmin() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     {invitation.status === 'active' && (
                       <button
-                        onClick={() => handleRevokeInvitation(invitation.id)}
+                        onClick={() => handleRevokeInvitation(invitation.code)}
                         className="text-red-600 hover:text-red-900"
                       >
                         Revoke

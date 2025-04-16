@@ -3,8 +3,35 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
+import { ErrorResponse } from '../../../types';
 
 type DataType = 'products' | 'inventory' | 'orders' | 'users';
+
+interface MockData {
+  products: Array<{
+    id: number;
+    name: string;
+    price: number;
+    sku: string;
+  }>;
+  inventory: Array<{
+    id: number;
+    product_id: number;
+    quantity: number;
+    location: string;
+  }>;
+  orders: Array<{
+    id: string;
+    customer: string;
+    total: number;
+    status: string;
+  }>;
+  users: Array<{
+    id: string;
+    email: string;
+    role: string;
+  }>;
+}
 
 export default function ImportExport() {
   const [isLoading, setIsLoading] = useState(true);
@@ -88,8 +115,8 @@ export default function ImportExport() {
       }
       setImportFile(null);
     } catch (error: unknown) {
-      let message = 'Failed to import data';
-      if (error instanceof Error) message = error.message;
+      const errorResponse = error as ErrorResponse;
+      const message = errorResponse.message || 'Failed to import data';
       setImportStatus(`Error: ${message}`);
       console.error('Import error:', error);
     } finally {
@@ -112,7 +139,7 @@ export default function ImportExport() {
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // For this demo, we'll create a small placeholder dataset
-      const mockData = {
+      const mockData: MockData = {
         products: [
           { id: 1, name: 'Product 1', price: 19.99, sku: 'SKU001' },
           { id: 2, name: 'Product 2', price: 29.99, sku: 'SKU002' }
@@ -168,8 +195,8 @@ export default function ImportExport() {
       
       setExportStatus(`Successfully exported ${dataToExport.length} ${dataType} records`);
     } catch (error: unknown) {
-      let message = 'Failed to export data';
-      if (error instanceof Error) message = error.message;
+      const errorResponse = error as ErrorResponse;
+      const message = errorResponse.message || 'Failed to export data';
       setExportStatus(`Error: ${message}`);
       console.error('Export error:', error);
     } finally {
