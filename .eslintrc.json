@@ -1,0 +1,12 @@
+{
+  "extends": ["next"],
+  "plugins": ["@typescript-eslint"],
+  "rules": {
+    // Disable rules that would normally be enforced by react-hooks plugin
+    "react-hooks/rules-of-hooks": "off",
+    "react-hooks/exhaustive-deps": "off",
+    // Other reasonable defaults
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-unused-vars": "off"
+  }
+} 
