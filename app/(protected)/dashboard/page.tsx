@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useEffect, useState, useCallback } from 'react';
+import { createClientComponentClient, SupabaseClient } from '@supabase/auth-helpers-nextjs';
 import ProfitCalculator from '../../components/ProfitCalculator';
 import CanceledOrdersStats from '../../components/CanceledOrdersStats';
 import ProfitReports from '../../components/ProfitReports';
 import ProductPerformanceSummary from '../../components/ProductPerformanceSummary';
 import InventoryManagement from '../../components/InventoryManagement';
 import { calculateProfitBreakdown, ProfitBreakdown, Sale, CanceledOrder, formatCurrency } from '../../utils/calculations';
-import { processSalesData, aggregateMonthlyData } from '../../utils/reports';
+import { processSalesData, aggregateMonthlyData, ProfitData, ReportTotals } from '../../utils/reports';
 
 // Replace all sample data arrays with empty arrays
 const SAMPLE_SALES: Sale[] = [];
@@ -36,9 +36,9 @@ interface Product {
 
 export default function Dashboard() {
   const [profitBreakdown, setProfitBreakdown] = useState<ProfitBreakdown | null>(null);
-  const [dailyData, setDailyData] = useState<any[]>([]);
-  const [monthlyData, setMonthlyData] = useState<any[]>([]);
-  const [totals, setTotals] = useState<any>(null);
+  const [dailyData, setDailyData] = useState<ProfitData[]>([]);   // Use imported ProfitData
+  const [monthlyData, setMonthlyData] = useState<ProfitData[]>([]); // Use imported ProfitData
+  const [totals, setTotals] = useState<ReportTotals | null>(null); // Use imported ReportTotals
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usingSampleData, setUsingSampleData] = useState(false);
@@ -48,7 +48,7 @@ export default function Dashboard() {
     totalQuantity: 0,
     totalValue: 0
   });
-  const supabase = createClientComponentClient();
+  const supabase: SupabaseClient = createClientComponentClient();
 
   // Get the current user's ID
   useEffect(() => {
@@ -59,176 +59,72 @@ export default function Dashboard() {
       }
     };
     getUserId();
-  }, []);
+  }, [supabase, supabase.auth]);
 
-  // Update the fetchDashboardData function to not use sample data
-  const fetchDashboardData = async () => {
-    if (!userId) {
-      console.error('No user ID available');
-      return { 
-        salesData: [], 
-        productsData: [], 
-        canceledData: [], 
-        settings: SAMPLE_SETTINGS 
-      };
-    }
+  // Wrap loadDashboardData in useCallback
+  const loadDashboardData = useCallback(async () => {
+    if (!userId) return; // Guard if userId is null
 
-    try {
-      setIsLoading(true);
-      let salesData = [];
-      let productsData = [];
-      let canceledData = [];
-      let settings = SAMPLE_SETTINGS;
-
-      // Get sales data
-      const { data: salesResult, error: salesError } = await supabase
-        .from('sales')
-        .select('*')
-        .eq('user_id', userId)
-        .order('sale_date', { ascending: false });
-
-      if (salesError) throw salesError;
-      
-      // Get products data
-      const { data: productsResult, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (productsError) throw productsError;
-      
-      // Get canceled orders data
-      const { data: canceledResult, error: canceledError } = await supabase
-        .from('canceled_orders')
-        .select('*')
-        .eq('user_id', userId)
-        .order('cancellation_date', { ascending: false });
-
-      if (canceledError) throw canceledError;
-      
-      // Get settings data
-      const { data: settingsData, error: settingsError } = await supabase
-        .from('app_settings')
-        .select('*')
-        .eq('user_id', userId)
-        .limit(1);
-
-      if (settingsError) throw settingsError;
-      
-      // Use actual data or empty arrays
-      salesData = salesResult || [];
-      productsData = productsResult || [];
-      canceledData = canceledResult || [];
-      settings = settingsData && settingsData.length > 0 ? settingsData[0] : SAMPLE_SETTINGS;
-      
-      // Avoid using sample data
-      setUsingSampleData(false);
-      
-      return { salesData, productsData, canceledData, settings };
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      
-      // Return empty data instead of sample data
-      setUsingSampleData(false);
-      return { 
-        salesData: [], 
-        productsData: [], 
-        canceledData: [], 
-        settings: SAMPLE_SETTINGS 
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (userId) {
-      loadDashboardData();
-    }
-  }, [userId]);
-
-  async function loadDashboardData() {
     try {
       setIsLoading(true);
       setError(null);
 
-      let salesData, productsData, canceledData, settings;
+      let salesData, productsData, canceledData;
+      let fetchedSettings; // Rename to avoid conflict and clarify usage
       let useBackupData = false;
 
       try {
         // Fetch sales data
-        const { data, error: salesError } = await supabase
+        const { data: salesResult, error: salesError } = await supabase
           .from('sales')
           .select('*')
           .eq('user_id', userId)
-          .order('sale_date', { ascending: true });
+          .order('sale_date', { ascending: false });
 
         if (salesError) throw salesError;
-        salesData = data || [];
+        salesData = salesResult || [];
 
         // Fetch products data
-        const { data: products, error: productsError } = await supabase
+        const { data: productsResult, error: productsError } = await supabase
           .from('products')
           .select('*')
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
 
         if (productsError) throw productsError;
-        productsData = products || [];
+        productsData = productsResult || [];
 
-        // Fetch canceled orders
-        const { data: canceled, error: canceledError } = await supabase
+        // Fetch canceled orders data
+        const { data: canceledResult, error: canceledError } = await supabase
           .from('canceled_orders')
           .select('*')
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .order('cancellation_date', { ascending: false });
 
         if (canceledError) throw canceledError;
-        canceledData = canceled || [];
+        canceledData = canceledResult || [];
 
-        // Fetch shipping settings
+        // Get settings data
         const { data: settingsData, error: settingsError } = await supabase
           .from('app_settings')
           .select('*')
           .eq('user_id', userId)
-          .single();
+          .limit(1);
 
-        if (settingsError && settingsError.code !== 'PGRST116') throw settingsError;
-        settings = settingsData || SAMPLE_SETTINGS;
-
-        // Fetch orders data
-        const { data: ordersData, error: ordersError } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', userId)
-          .order('order_date', { ascending: true });
-
-        if (ordersError) throw ordersError;
+        if (settingsError) throw settingsError;
         
-        // Convert orders to sales format for the dashboard processing
-        const salesFromOrders = (ordersData || []).map(order => ({
-          id: order.order_id,
-          product_id: order.sku, // Using sku as product reference
-          quantity_sold: order.order_quantity,
-          sale_price: order.walmart_price_per_unit,
-          shipping_fee_per_unit: order.walmart_shipping_fee_per_unit,
-          walmart_fee: order.walmart_fee,
-          sale_date: order.order_date,
-          platform: 'walmart',
-          shipping_cost: order.walmart_shipping_fee_per_unit * order.order_quantity, // This is customer shipping fee, not seller cost
-          label_cost: 0, // Label cost isn't directly on the order, fulfillment_cost covers it
-          cost_per_unit: order.product_cost_per_unit,
-          additional_costs: order.fulfillment_cost, // Use the actual fulfillment_cost from the order
-          total_revenue: order.total_revenue,
-          net_profit: order.net_profit,
-          profit_margin: order.roi,
-          status: order.status === 'active' ? 'active' : 'canceled_before_shipping',
-          order_number: order.order_id // Ensure order_number is available for grouping
-        }));
+        // Use actual data or empty arrays
+        if (salesData.length === 0 && productsData.length === 0 && canceledData.length === 0) {
+          console.warn('No data found in sales, products, or canceled orders tables');
+          useBackupData = true;
+          setUsingSampleData(true);
+        }
         
-        // Use orders data if sales table is empty
-        if (salesData.length === 0 && ordersData && ordersData.length > 0) {
-          console.log(`Using ${ordersData.length} orders as sales data`);
-          salesData = salesFromOrders;
+        if (useBackupData) {
+          salesData = SAMPLE_SALES;
+          productsData = SAMPLE_PRODUCTS;
+          canceledData = SAMPLE_CANCELED_ORDERS;
+          fetchedSettings = SAMPLE_SETTINGS;
         }
         
       } catch (dbError) {
@@ -242,7 +138,7 @@ export default function Dashboard() {
         salesData = SAMPLE_SALES;
         productsData = SAMPLE_PRODUCTS;
         canceledData = SAMPLE_CANCELED_ORDERS;
-        settings = SAMPLE_SETTINGS;
+        fetchedSettings = SAMPLE_SETTINGS;
       }
 
       // Process sales data for reports
@@ -299,7 +195,13 @@ export default function Dashboard() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [userId, supabase]);
+
+  useEffect(() => {
+    if (userId) {
+      loadDashboardData();
+    }
+  }, [userId, loadDashboardData]);
 
   if (isLoading) {
     return (

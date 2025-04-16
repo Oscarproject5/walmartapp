@@ -665,16 +665,22 @@ export default function NewOrdersClient() {
       // Insert rows one by one for better error isolation
       for (const [index, rowToInsert] of rowsToInsert.entries()) {
         try {
-          console.log(`Attempting to insert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
-          const { error: insertError } = await supabase
+          console.log(`Attempting to upsert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before upsert
+          
+          // Use upsert instead of insert
+          const { error: upsertError } = await supabase
             .from('orders')
-            .insert([rowToInsert]);
+            .upsert(rowToInsert, { 
+              onConflict: 'order_id, sku', // Specify conflict columns (primary key)
+              ignoreDuplicates: true      // Tell Supabase to ignore duplicates instead of updating
+            });
             
-          if (insertError) {
-            console.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
-            console.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
+          if (upsertError) {
+            // Even with ignoreDuplicates, other errors might occur
+            console.error(`Error upserting row (Order ID: ${rowToInsert.order_id}):`, upsertError); 
+            console.error(`Full Upsert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(upsertError, null, 2)); // Log full error object
             errorCount++;
-            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
+            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${upsertError.message || 'Unknown upsert error'}`);
           } else {
             successCount++;
             // Aggregate quantities by SKU for inventory update
