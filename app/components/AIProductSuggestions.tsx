@@ -60,7 +60,7 @@ export default function AIProductSuggestions({ products }: AIProductSuggestionsP
       if (!trimmedLine) return; // Skip empty lines
       
       // Remove bullet points and numbering
-      let cleanLine = trimmedLine.replace(/^-\s+/, '').replace(/^\d+\.\s+/, '');
+      const cleanLine = trimmedLine.replace(/^-\s+/, '').replace(/^\d+\.\s+/, '');
       
       // Check for product pattern
       const productMatch = cleanLine.match(/^(\*\*)?Product:(.+?)(\*\*)?$/i);

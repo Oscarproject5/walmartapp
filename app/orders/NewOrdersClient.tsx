@@ -593,7 +593,7 @@ export default function NewOrdersClient() {
         const productCost = parseFloat(productData?.per_qty_price ?? productData?.cost_per_item) || 0;
         const fulfillmentCost = parseFloat(originalRow.fulfillment_cost) || calculateFulfillmentCost();
         
-        let processedRow: any = {
+        const processedRow: any = {
           order_id: originalRow.order_id,
           order_date: originalRow.order_date || new Date().toISOString().split('T')[0],
           customer_name: originalRow.customer_name || 'Unknown Customer',
@@ -657,7 +657,7 @@ export default function NewOrdersClient() {
       // Insert the processed and validated data into the orders table
       let successCount = 0;
       let errorCount = 0;
-      let insertErrors: string[] = [];
+      const insertErrors: string[] = [];
       
       // Create a map to aggregate quantities by SKU for updating inventory
       const skuQuantityMap = new Map();
