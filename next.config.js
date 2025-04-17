@@ -13,15 +13,8 @@ const nextConfig = {
       },
     ],
   },
-  reactStrictMode: true,
   experimental: {
     turbo: {},
-  },
-  // Required for Vercel deployment when handling specific routes or configurations
-  poweredByHeader: false,
-  // Add any additional environment variables needed for deployment
-  env: {
-    // You can add environment-specific variables here if needed
   },
 };
 

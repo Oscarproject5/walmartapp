@@ -8,7 +8,6 @@ import { formatCurrency } from '../lib/utils';
 import ExcelColumnMapper from '../components/ExcelColumnMapper';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
-import { useDropzone } from 'react-dropzone';
 
 // Define interface for shipping settings
 interface ShippingSettings {
@@ -314,7 +313,24 @@ export default function NewOrdersClient() {
         throw new Error(`${missingOrderIds.length} orders are missing an order ID. Please ensure all orders have an ID.`);
       }
       
-      // First, check for order_id field in the data to identify potential duplicates
+      // First, check for order_id field in the data to identify potential duplicates within this batch
+      const orderIdCounts = new Map();
+      mappedData.forEach(row => {
+        const count = orderIdCounts.get(row.order_id) || 0;
+        orderIdCounts.set(row.order_id, count + 1);
+      });
+      
+      // Check for and warn about duplicate order IDs within the current batch
+      const duplicatesInBatch = Array.from(orderIdCounts.entries())
+        .filter(([_, count]) => count > 1)
+        .map(([id, _]) => id);
+        
+      if (duplicatesInBatch.length > 0) {
+        console.warn(`Found ${duplicatesInBatch.length} duplicate order IDs within this batch:`, duplicatesInBatch);
+        toast.error(`Found ${duplicatesInBatch.length} duplicate order IDs within this batch. Only the last occurrence of each ID will be processed.`);
+      }
+      
+      // Get all order IDs from the current batch for database check
       const orderIds = mappedData.map(row => row.order_id);
       
       // Check for duplicates in the database
@@ -329,36 +345,27 @@ export default function NewOrdersClient() {
         // Create a set of existing order IDs for quick lookup
         const existingOrderIdSet = new Set(existingOrders.map(o => o.order_id));
         
-        // Filter out duplicate orders
-        const filteredData = mappedData.filter(row => {
-          if (existingOrderIdSet.has(row.order_id)) {
-            return false; // Skip this row as it's a duplicate
-          }
-          return true;
-        });
-        
-        // Count skipped duplicates
-        const skippedCount = mappedData.length - filteredData.length;
-        setSkippedDuplicates(skippedCount);
-        
-        if (skippedCount > 0) {
-          console.log(`Skipped ${skippedCount} duplicate orders based on order_id`);
+        // Filter out duplicate orders or warn user
+        if (existingOrderIdSet.size === orderIds.length) {
+          // All orders already exist
+          setSkippedDuplicates(existingOrderIdSet.size);
+          setIsImporting(false);
+          toast.success(`All ${existingOrderIdSet.size} orders already exist in the database. These will be updated if you proceed.`);
           
-          // Update the mappedData reference with filtered data
-          mappedDataRef.current = filteredData;
+          // Give user option to continue and update or cancel
+          const shouldProceed = window.confirm(`All ${existingOrderIdSet.size} orders already exist in the database. Would you like to continue and update these orders?`);
           
-          // If all orders were duplicates, show a message and stop
-          if (filteredData.length === 0) {
+          if (!shouldProceed) {
             setIsImporting(false);
-            toast.success(`All ${skippedCount} orders were duplicates and have been skipped.`);
             return;
           }
-          
-          // Continue with the filtered data
-          mappedData = filteredData;
-          
-          // Notify user about skipped duplicates but continue with valid orders
-          toast.success(`Skipped ${skippedCount} duplicate orders. Continuing with ${filteredData.length} new orders.`);
+          // If they choose to proceed, we'll continue with all data and use upsert
+        } else {
+          // Only some orders are duplicates
+          const duplicateCount = existingOrderIdSet.size;
+          console.log(`Found ${duplicateCount} orders that already exist in the database. These will be updated.`);
+          toast.success(`Found ${duplicateCount} orders that already exist in the database. These will be updated.`);
+          setSkippedDuplicates(duplicateCount);
         }
       }
       
@@ -423,8 +430,12 @@ export default function NewOrdersClient() {
         return;
       }
       
-      // If no missing SKUs, proceed with processing
-      await processMappedData();
+      // If no missing SKUs, use the function directly without await
+      processMappedData().catch(err => {
+        console.error("Error processing mapped data:", err);
+        toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
+        setIsImporting(false);
+      });
       
     } catch (error: any) {
       console.error("Error handling mapped data:", error);
@@ -474,7 +485,11 @@ export default function NewOrdersClient() {
         console.log('All SKUs already exist in the database, proceeding with import');
         setMissingSkus([]);
         setShowMissingSkusWarning(false);
-        await processMappedData();
+        processMappedData().catch(err => {
+          console.error("Error processing mapped data:", err);
+          toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
+          setIsImporting(false);
+        });
         return;
       }
       
@@ -500,7 +515,11 @@ export default function NewOrdersClient() {
       setShowMissingSkusWarning(false);
       
       // Proceed with import after creating products
-      await processMappedData();
+      processMappedData().catch(err => {
+        console.error("Error processing mapped data:", err);
+        toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
+        setIsImporting(false);
+      });
     } catch (err: any) {
       console.error('Error creating missing products:', err);
       const errorMessage = err.message || 'Unknown error occurred';
@@ -542,19 +561,13 @@ export default function NewOrdersClient() {
       // 1. Fetch existing order IDs again to be absolutely sure about duplicates
       const { data: existingOrdersData, error: orderFetchError } = await supabase
         .from('orders')
-        .select('order_id, sku');
+        .select('order_id');
         
       if (orderFetchError) {
         console.error("Pre-insert Fetch Error: Could not get existing order IDs:", orderFetchError);
         // Decide if we should proceed or throw error
       }
-
-      // Create a Set of composite keys (order_id + sku) for efficient duplicate checking
-      const existingOrderSkuSet = new Set();
-      existingOrdersData?.forEach(order => {
-        const compositeKey = `${order.order_id}:${order.sku}`;
-        existingOrderSkuSet.add(compositeKey);
-      });
+      const existingOrderIdSet = new Set(existingOrdersData?.map(o => o.order_id) || []);
       
       // 2. Fetch existing product SKUs and related data (cost, name) again
       const { data: existingProductsData, error: productFetchError } = await supabase
@@ -582,11 +595,8 @@ export default function NewOrdersClient() {
       mappedData.forEach((originalRow, index) => {
         const rowIndex = index + 1; // 1-based index for user messages
         
-        // Create a composite key using order_id and sku
-        const compositeKey = `${originalRow.order_id}:${originalRow.sku}`;
-        
-        // Check for duplicate (order_id, sku) combination
-        if (existingOrderSkuSet.has(compositeKey)) {
+        // Check for duplicate order_id
+        if (existingOrderIdSet.has(originalRow.order_id)) {
           localSkippedDuplicates++;
           return; // Skip duplicate
         }
@@ -676,21 +686,20 @@ export default function NewOrdersClient() {
       for (const [index, rowToInsert] of rowsToInsert.entries()) {
         try {
           console.log(`Attempting to insert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
+          
+          // Use upsert operation (insert with onConflict handling) instead of plain insert
           const { error: insertError } = await supabase
             .from('orders')
-            .insert([rowToInsert]);
+            .upsert([rowToInsert], {
+              onConflict: 'order_id', // The primary key to check
+              ignoreDuplicates: false  // Update the existing record
+            });
             
           if (insertError) {
             console.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
             console.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
             errorCount++;
-            
-            // Provide more helpful error message for duplicate key violations
-            if (insertError.code === '23505' && insertError.message && insertError.message.includes('orders_pkey')) {
-              insertErrors.push(`Order ID ${rowToInsert.order_id} with SKU ${rowToInsert.sku || 'unknown'}: This combination already exists in the database.`);
-            } else {
-              insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
-            }
+            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
           } else {
             successCount++;
             // Aggregate quantities by SKU for inventory update
@@ -1030,15 +1039,6 @@ export default function NewOrdersClient() {
       setSelectedBatchId(null);
     }
   };
-
-  const { getRootProps, getInputProps } = useDropzone({
-    onDrop: (acceptedFiles) => {
-      if (acceptedFiles.length > 0) {
-        // Handle file drop logic here
-      }
-    },
-    // Existing dropzone configuration
-  });
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -1564,29 +1564,17 @@ export default function NewOrdersClient() {
       {/* Excel Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
-              <Upload className="h-5 w-5 text-blue-500 mr-2" />
-              Import Orders
-            </h3>
-
-            {/* Add the information box here, before the file upload component */}
-            <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 mb-4 flex items-start">
-              <div className="flex-shrink-0 mr-2 mt-0.5">
-                <svg className="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div>
-                <p className="font-medium mb-1">Import Guidelines</p>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Each combination of Order ID and SKU must be unique in the database</li>
-                  <li>Duplicate Order ID + SKU combinations will be skipped during import</li>
-                  <li>Different SKUs can share the same Order ID (for multi-item orders)</li>
-                </ul>
-              </div>
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Upload Orders from Excel</h3>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-
+            
             <ExcelColumnMapper
               onMappedDataReady={handleMappedDataReady}
               onClose={() => setShowUploadModal(false)}
