@@ -658,6 +658,7 @@ export default function NewOrdersClient() {
       let successCount = 0;
       let errorCount = 0;
       let insertErrors: string[] = [];
+      let updateCount = 0;
       
       // Create a map to aggregate quantities by SKU for updating inventory
       const skuQuantityMap = new Map();
@@ -665,21 +666,45 @@ export default function NewOrdersClient() {
       // Insert rows one by one for better error isolation
       for (const [index, rowToInsert] of rowsToInsert.entries()) {
         try {
-          console.log(`Attempting to upsert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before upsert
-          const { error: upsertError } = await supabase
+          console.log(`Attempting to insert/update row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
+          
+          // First check if this order already exists
+          const { data: existingOrder, error: checkError } = await supabase
             .from('orders')
-            .upsert(rowToInsert, {
-              onConflict: 'order_id,sku', // Specify the constraint columns
-              ignoreDuplicates: false // Set to false to update existing rows
-            });
+            .select('order_id')
+            .eq('order_id', rowToInsert.order_id)
+            .maybeSingle();
+          
+          let operationResult;
+          
+          if (existingOrder) {
+            // Order exists - update it
+            operationResult = await supabase
+              .from('orders')
+              .update(rowToInsert)
+              .eq('order_id', rowToInsert.order_id);
             
-          if (upsertError) {
-            console.error(`Error upserting row (Order ID: ${rowToInsert.order_id}):`, upsertError); 
-            console.error(`Full Upsert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(upsertError, null, 2)); // Log full error object
-            errorCount++;
-            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${upsertError.message || 'Unknown upsert error'}`);
+            if (!operationResult.error) {
+              updateCount++;
+              successCount++;
+            }
           } else {
-            successCount++;
+            // Order doesn't exist - insert it
+            operationResult = await supabase
+              .from('orders')
+              .insert([rowToInsert]);
+              
+            if (!operationResult.error) {
+              successCount++;
+            }
+          }
+            
+          if (operationResult.error) {
+            console.error(`Error processing row (Order ID: ${rowToInsert.order_id}):`, operationResult.error); 
+            console.error(`Full Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(operationResult.error, null, 2));
+            errorCount++;
+            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${operationResult.error.message || 'Unknown error'}`);
+          } else {
             // Aggregate quantities by SKU for inventory update
             if (rowToInsert.sku) {
               const currentQty = skuQuantityMap.get(rowToInsert.sku) || 0;
@@ -687,8 +712,8 @@ export default function NewOrdersClient() {
             }
           }
         } catch (err: any) {
-          console.error(`Exception upserting row (Order ID: ${rowToInsert.order_id}):`, err);
-          console.error(`Full Upsert Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2)); // Log full exception object
+          console.error(`Exception processing row (Order ID: ${rowToInsert.order_id}):`, err);
+          console.error(`Full Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2));
           errorCount++;
           insertErrors.push(`Order ID ${rowToInsert.order_id}: ${err.message || 'Unknown exception'}`);
         }
@@ -737,7 +762,7 @@ export default function NewOrdersClient() {
       }
       
       // Prepare message based on results
-      let message = `Import finished. Successful: ${successCount}, Failed: ${errorCount}.`;
+      let message = `Import finished. Successful: ${successCount} (${updateCount} updated, ${successCount - updateCount} new), Failed: ${errorCount}.`;
       if (skippedDuplicates > 0) {
         message += ` Skipped ${skippedDuplicates} duplicates.`;
       }
