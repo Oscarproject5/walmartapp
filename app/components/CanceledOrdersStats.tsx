@@ -83,11 +83,37 @@ export default function CanceledOrdersStats() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(false);
 
   useEffect(() => {
-    loadCanceledOrders();
-    loadAppSettings();
-  }, []);
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        await getUserId();
+        await loadAppSettings();
+        await loadCanceledOrders();
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError('An error occurred while loading data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [refresh]);
+
+  const getUserId = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+      }
+    } catch (err) {
+      console.error('Error getting user ID:', err);
+    }
+  };
 
   const loadAppSettings = async () => {
     try {
@@ -113,6 +139,7 @@ export default function CanceledOrdersStats() {
           openrouter_api_key: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          user_id: userId || '',
         });
       }
     } catch (err) {
@@ -129,6 +156,7 @@ export default function CanceledOrdersStats() {
         openrouter_api_key: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        user_id: userId || '',
       });
     }
   };
