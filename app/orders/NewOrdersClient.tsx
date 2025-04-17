@@ -313,24 +313,7 @@ export default function NewOrdersClient() {
         throw new Error(`${missingOrderIds.length} orders are missing an order ID. Please ensure all orders have an ID.`);
       }
       
-      // First, check for order_id field in the data to identify potential duplicates within this batch
-      const orderIdCounts = new Map();
-      mappedData.forEach(row => {
-        const count = orderIdCounts.get(row.order_id) || 0;
-        orderIdCounts.set(row.order_id, count + 1);
-      });
-      
-      // Check for and warn about duplicate order IDs within the current batch
-      const duplicatesInBatch = Array.from(orderIdCounts.entries())
-        .filter(([_, count]) => count > 1)
-        .map(([id, _]) => id);
-        
-      if (duplicatesInBatch.length > 0) {
-        console.warn(`Found ${duplicatesInBatch.length} duplicate order IDs within this batch:`, duplicatesInBatch);
-        toast.error(`Found ${duplicatesInBatch.length} duplicate order IDs within this batch. Only the last occurrence of each ID will be processed.`);
-      }
-      
-      // Get all order IDs from the current batch for database check
+      // First, check for order_id field in the data to identify potential duplicates
       const orderIds = mappedData.map(row => row.order_id);
       
       // Check for duplicates in the database
@@ -345,27 +328,36 @@ export default function NewOrdersClient() {
         // Create a set of existing order IDs for quick lookup
         const existingOrderIdSet = new Set(existingOrders.map(o => o.order_id));
         
-        // Filter out duplicate orders or warn user
-        if (existingOrderIdSet.size === orderIds.length) {
-          // All orders already exist
-          setSkippedDuplicates(existingOrderIdSet.size);
-          setIsImporting(false);
-          toast.success(`All ${existingOrderIdSet.size} orders already exist in the database. These will be updated if you proceed.`);
+        // Filter out duplicate orders
+        const filteredData = mappedData.filter(row => {
+          if (existingOrderIdSet.has(row.order_id)) {
+            return false; // Skip this row as it's a duplicate
+          }
+          return true;
+        });
+        
+        // Count skipped duplicates
+        const skippedCount = mappedData.length - filteredData.length;
+        setSkippedDuplicates(skippedCount);
+        
+        if (skippedCount > 0) {
+          console.log(`Skipped ${skippedCount} duplicate orders based on order_id`);
           
-          // Give user option to continue and update or cancel
-          const shouldProceed = window.confirm(`All ${existingOrderIdSet.size} orders already exist in the database. Would you like to continue and update these orders?`);
+          // Update the mappedData reference with filtered data
+          mappedDataRef.current = filteredData;
           
-          if (!shouldProceed) {
+          // If all orders were duplicates, show a message and stop
+          if (filteredData.length === 0) {
             setIsImporting(false);
+            toast.success(`All ${skippedCount} orders were duplicates and have been skipped.`);
             return;
           }
-          // If they choose to proceed, we'll continue with all data and use upsert
-        } else {
-          // Only some orders are duplicates
-          const duplicateCount = existingOrderIdSet.size;
-          console.log(`Found ${duplicateCount} orders that already exist in the database. These will be updated.`);
-          toast.success(`Found ${duplicateCount} orders that already exist in the database. These will be updated.`);
-          setSkippedDuplicates(duplicateCount);
+          
+          // Continue with the filtered data
+          mappedData = filteredData;
+          
+          // Notify user about skipped duplicates but continue with valid orders
+          toast.success(`Skipped ${skippedCount} duplicate orders. Continuing with ${filteredData.length} new orders.`);
         }
       }
       
@@ -430,12 +422,8 @@ export default function NewOrdersClient() {
         return;
       }
       
-      // If no missing SKUs, use the function directly without await
-      processMappedData().catch(err => {
-        console.error("Error processing mapped data:", err);
-        toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
-        setIsImporting(false);
-      });
+      // If no missing SKUs, proceed with processing
+      await processMappedData();
       
     } catch (error: any) {
       console.error("Error handling mapped data:", error);
@@ -485,11 +473,7 @@ export default function NewOrdersClient() {
         console.log('All SKUs already exist in the database, proceeding with import');
         setMissingSkus([]);
         setShowMissingSkusWarning(false);
-        processMappedData().catch(err => {
-          console.error("Error processing mapped data:", err);
-          toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
-          setIsImporting(false);
-        });
+        await processMappedData();
         return;
       }
       
@@ -515,11 +499,7 @@ export default function NewOrdersClient() {
       setShowMissingSkusWarning(false);
       
       // Proceed with import after creating products
-      processMappedData().catch(err => {
-        console.error("Error processing mapped data:", err);
-        toast.error(`Import error: ${err.message || 'Unknown error occurred'}`);
-        setIsImporting(false);
-      });
+      await processMappedData();
     } catch (err: any) {
       console.error('Error creating missing products:', err);
       const errorMessage = err.message || 'Unknown error occurred';
@@ -528,140 +508,286 @@ export default function NewOrdersClient() {
     }
   };
 
-  // Helper function to get user session
-  const getUserSession = async () => {
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      return userData?.user;
-    } catch (error) {
-      console.error('Error getting user session:', error);
-      return null;
-    }
-  };
-
-  // Helper function to check for missing products
-  const checkForMissingProducts = async (skus: string[]) => {
-    try {
-      // Get existing products from database
-      const { data: existingProducts, error } = await supabase
-        .from('products')
-        .select('product_sku');
-        
-      if (error) throw error;
-      
-      // Create a set of existing SKUs for case-insensitive lookup
-      const existingSkuMap = new Set(
-        existingProducts?.map(p => p.product_sku?.toLowerCase()) || []
-      );
-      
-      // Filter out SKUs that don't exist in the database
-      return skus.filter(sku => !existingSkuMap.has(sku.toLowerCase()));
-    } catch (error) {
-      console.error('Error checking for missing products:', error);
-      return [];
-    }
-  };
-
   // Process mapped data and import to database
   const processMappedData = async () => {
-    if (!mappedDataRef.current || mappedDataRef.current.length === 0) {
-      console.error('No mapped data to process');
-      return;
-    }
-
     setIsImporting(true);
-    const user = await getUserSession();
-    
-    if (!user) {
-      toast.error('User session not found. Please login again.');
-      setIsImporting(false);
-      return;
-    }
-
-    const userId = user.id;
-    const batchId = uuidv4();
+    setImportProcessedItems(0); // Reset progress
+    let localSkippedDuplicates = 0;
+    const currentBatchId = uuidv4(); // Generate a unique batch ID for this upload
     
     try {
-      // Check for existing products and create any that are missing
-      const allSKUs = mappedDataRef.current.map(item => item.sku);
-      const uniqueSKUs = [...new Set(allSKUs)];
-      const missingSkus = await checkForMissingProducts(uniqueSKUs);
-      
-      if (missingSkus.length > 0) {
-        await createMissingProducts(missingSkus);
+      // Get current user ID
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
       }
       
-      // Process each order item
-      const insertPromises = mappedDataRef.current.map(async (item) => {
-        try {
-          // Insert into orders table with upsert to handle duplicates
-          const { data, error } = await supabase
-            .from('orders')
-            .upsert({
-              order_id: item.order_id,
-              order_date: item.order_date,
-              customer_name: item.customer_name,
-              sku: item.sku,
-              product_name: item.product_name,
-              order_quantity: item.order_quantity,
-              walmart_price_per_unit: item.walmart_price_per_unit,
-              walmart_shipping_fee_per_unit: item.walmart_shipping_fee_per_unit,
-              product_cost_per_unit: item.product_cost_per_unit,
-              fulfillment_cost: shippingSettings?.shipping_base_cost + shippingSettings?.label_cost || 6,
-              walmart_shipping_total: item.walmart_shipping_total,
-              walmart_item_total: item.walmart_item_total,
-              total_revenue: item.total_revenue,
-              walmart_fee: item.walmart_fee,
-              product_cost_total: item.product_cost_total,
-              net_profit: item.net_profit,
-              roi: item.roi,
-              status: 'active',
-              user_id: userId,
-              upload_batch_id: batchId
-            }, { 
-              onConflict: ['order_id', 'sku'],  // Use array format for composite primary key
-              ignoreDuplicates: false // Update the record if it exists
-            });
-            
-          if (error) {
-            console.error(`Error inserting row (Order ID: ${item.order_id}):`, error);
-            console.error(`Full Insert Error Object (Order ID: ${item.order_id}):`, JSON.stringify(error, null, 2));
-            return { success: false, orderId: item.order_id, error };
-          }
-          
-          return { success: true, orderId: item.order_id };
-        } catch (e) {
-          console.error(`Unexpected error processing row (Order ID: ${item.order_id}):`, e);
-          return { success: false, orderId: item.order_id, error: e };
+      const mappedData = mappedDataRef.current;
+      if (!mappedData || !mappedData.length) {
+        throw new Error("No data to import");
+      }
+      
+      setImportTotalItems(mappedData.length); // Set total items for progress bar (initial count)
+      
+      // Ensure all rows have an order_id
+      if (mappedData.some(row => !row.order_id)) {
+        throw new Error("Some orders are missing an order ID. Please ensure all orders have an ID.");
+      }
+      
+      // --- Start: Enhanced Pre-computation and Validation ---
+      
+      // 1. Fetch existing order IDs again to be absolutely sure about duplicates
+      const { data: existingOrdersData, error: orderFetchError } = await supabase
+        .from('orders')
+        .select('order_id');
+        
+      if (orderFetchError) {
+        console.error("Pre-insert Fetch Error: Could not get existing order IDs:", orderFetchError);
+        // Decide if we should proceed or throw error
+      }
+      const existingOrderIdSet = new Set(existingOrdersData?.map(o => o.order_id) || []);
+      
+      // 2. Fetch existing product SKUs and related data (cost, name) again
+      const { data: existingProductsData, error: productFetchError } = await supabase
+        .from('products')
+        .select('product_sku, cost_per_item, name, per_qty_price');
+        
+      if (productFetchError) {
+        console.error("Pre-insert Fetch Error: Could not get product data:", productFetchError);
+        throw new Error("Failed to fetch product data for validation.");
+      }
+      const productMap = new Map();
+      const validProductSkuSet = new Set(); // Case-sensitive set for validation
+      existingProductsData?.forEach(p => {
+        if (p.product_sku) {
+          productMap.set(p.product_sku.toLowerCase(), p); // Use lowercase for lookup
+          validProductSkuSet.add(p.product_sku); // Use exact case for validation
         }
       });
       
-      const results = await Promise.all(insertPromises);
-      const successCount = results.filter(r => r.success).length;
-      const failureCount = results.length - successCount;
+      // 3. Pre-process and validate all rows *before* attempting any inserts
+      const rowsToInsert: any[] = [];
+      const validationErrors: string[] = [];
+      localSkippedDuplicates = 0; // Reset local count
       
-      setIsImporting(false);
-      setShowUploadModal(false);
+      mappedData.forEach((originalRow, index) => {
+        const rowIndex = index + 1; // 1-based index for user messages
+        
+        // Check for duplicate order_id
+        if (existingOrderIdSet.has(originalRow.order_id)) {
+          localSkippedDuplicates++;
+          return; // Skip duplicate
+        }
+        
+        // Check for valid SKU (case-sensitive)
+        const currentSku = originalRow.sku;
+        if (!currentSku || !validProductSkuSet.has(currentSku)) {
+          validationErrors.push(`Row ${rowIndex} (Order ID: ${originalRow.order_id || 'N/A'}): Invalid or missing SKU '${currentSku}'.`);
+          return; // Skip row with invalid SKU
+        }
+        
+        // Format the row data and check NOT NULL constraints
+        const productData = productMap.get(currentSku.toLowerCase());
+        const productCost = parseFloat(productData?.per_qty_price ?? productData?.cost_per_item) || 0;
+        const fulfillmentCost = parseFloat(originalRow.fulfillment_cost) || calculateFulfillmentCost();
+        
+        let processedRow: any = {
+          order_id: originalRow.order_id,
+          order_date: originalRow.order_date || new Date().toISOString().split('T')[0],
+          customer_name: originalRow.customer_name || 'Unknown Customer',
+          sku: originalRow.sku, // Use the validated SKU
+          product_name: originalRow.product_name || productData?.name || 'Unknown Product',
+          order_quantity: parseInt(originalRow.order_quantity) || 1,
+          walmart_price_per_unit: parseFloat(originalRow.walmart_price_per_unit) || 0,
+          walmart_shipping_fee_per_unit: parseFloat(originalRow.walmart_shipping_fee_per_unit) || 0,
+          product_cost_per_unit: productCost,
+          fulfillment_cost: fulfillmentCost,
+          user_id: userId // Add user_id to each row
+        };
+        
+        // Final check for NOT NULL fields before adding to insert list
+        const notNullFields = ['order_id', 'order_date', 'customer_name', 'sku', 'order_quantity', 'walmart_price_per_unit', 'walmart_shipping_fee_per_unit', 'product_cost_per_unit', 'fulfillment_cost'];
+        const missingFields = notNullFields.filter(field => processedRow[field] === null || processedRow[field] === undefined || processedRow[field] === '');
+        
+        if (missingFields.length > 0) {
+          validationErrors.push(`Row ${rowIndex} (Order ID: ${processedRow.order_id}): Missing or invalid required fields: ${missingFields.join(', ')}.`);
+          return; // Skip row failing NOT NULL checks
+        }
+        
+        // If row is valid, add it to the list for batch insertion
+        processedRow.upload_batch_id = currentBatchId; // Assign batch ID
+        rowsToInsert.push(processedRow);
+      });
       
-      if (successCount > 0 && failureCount === 0) {
-        toast.success(`Successfully imported ${successCount} orders!`);
-      } else if (successCount > 0 && failureCount > 0) {
-        toast.error(`Imported ${successCount} orders with ${failureCount} errors.`);
-      } else {
-        toast.error(`Failed to import orders. ${failureCount} errors occurred.`);
+      // Update the total skipped duplicate count state
+      setSkippedDuplicates(prev => prev + localSkippedDuplicates);
+      
+      // If validation errors occurred, report them and stop
+      if (validationErrors.length > 0) {
+        const errorMsg = `${validationErrors.length} rows had validation errors and will be skipped: ${validationErrors.slice(0, 5).join('; ')}${validationErrors.length > 5 ? '...' : ''}`;
+        console.error("Validation Errors:", validationErrors);
+        
+        // Don't stop the import if there are still valid rows, just show a warning
+        if (rowsToInsert.length > 0) {
+          toast.error(errorMsg, { duration: 10000 });
+        } else {
+          setError(errorMsg);
+          toast.error(errorMsg, { duration: 10000 });
+          setIsImporting(false);
+          return;
+        }
       }
       
+      // If all rows were duplicates or invalid, stop
+      if (rowsToInsert.length === 0) {
+        const message = `No valid new orders found to import. Skipped ${localSkippedDuplicates} duplicates${validationErrors.length > 0 ? ` and ${validationErrors.length} invalid rows` : ''}.`;
+        setIsImporting(false);
+        setImportTotalItems(0); // Update total for progress display
+        toast.success(message);
+        return;
+      }
+      
+      // Update total items for progress bar (actual number to insert)
+      setImportTotalItems(rowsToInsert.length);
+      
+      // --- End: Enhanced Pre-computation and Validation ---
+      
+      // Insert the processed and validated data into the orders table
+      let successCount = 0;
+      let errorCount = 0;
+      let insertErrors: string[] = [];
+      
+      // Create a map to aggregate quantities by SKU for updating inventory
+      const skuQuantityMap = new Map();
+      
+      // Insert rows one by one for better error isolation
+      for (const [index, rowToInsert] of rowsToInsert.entries()) {
+        try {
+          console.log(`Attempting to upsert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before upsert
+          const { error: upsertError } = await supabase
+            .from('orders')
+            .upsert(rowToInsert, {
+              onConflict: 'order_id,sku', // Specify the constraint columns
+              ignoreDuplicates: false // Set to false to update existing rows
+            });
+            
+          if (upsertError) {
+            console.error(`Error upserting row (Order ID: ${rowToInsert.order_id}):`, upsertError); 
+            console.error(`Full Upsert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(upsertError, null, 2)); // Log full error object
+            errorCount++;
+            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${upsertError.message || 'Unknown upsert error'}`);
+          } else {
+            successCount++;
+            // Aggregate quantities by SKU for inventory update
+            if (rowToInsert.sku) {
+              const currentQty = skuQuantityMap.get(rowToInsert.sku) || 0;
+              skuQuantityMap.set(rowToInsert.sku, currentQty + (rowToInsert.order_quantity || 0));
+            }
+          }
+        } catch (err: any) {
+          console.error(`Exception upserting row (Order ID: ${rowToInsert.order_id}):`, err);
+          console.error(`Full Upsert Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2)); // Log full exception object
+          errorCount++;
+          insertErrors.push(`Order ID ${rowToInsert.order_id}: ${err.message || 'Unknown exception'}`);
+        }
+        // Update progress after each item attempt
+        setImportProcessedItems(index + 1);
+      }
+      
+      // Update inventory SALES QTY for each affected product
+      if (skuQuantityMap.size > 0) {
+        console.log("Updating inventory sales quantities:", Object.fromEntries(skuQuantityMap));
+        
+        // Perform updates for each SKU
+        for (const [sku, quantity] of skuQuantityMap.entries()) {
+          try {
+            // First, get the current sales_qty value
+            const { data: productData, error: fetchError } = await supabase
+              .from('products')
+              .select('sales_qty')
+              .eq('product_sku', sku)
+              .single();
+              
+            if (fetchError) {
+              console.error(`Error fetching current sales_qty for ${sku}:`, fetchError);
+              continue;
+            }
+            
+            // Calculate new sales_qty value
+            const currentSalesQty = productData?.sales_qty || 0;
+            const newSalesQty = currentSalesQty + quantity;
+            
+            // Update the product's sales_qty
+            const { error: updateError } = await supabase
+              .from('products')
+              .update({ sales_qty: newSalesQty })
+              .eq('product_sku', sku);
+              
+            if (updateError) {
+              console.error(`Error updating sales_qty for ${sku}:`, updateError);
+            } else {
+              console.log(`Updated sales_qty for ${sku}: ${currentSalesQty} + ${quantity} = ${newSalesQty}`);
+            }
+          } catch (err) {
+            console.error(`Error processing sales_qty update for ${sku}:`, err);
+          }
+        }
+      }
+      
+      // Prepare message based on results
+      let message = `Import finished. Successful: ${successCount}, Failed: ${errorCount}.`;
       if (skippedDuplicates > 0) {
-        toast.success(`Skipped ${skippedDuplicates} duplicate entries`);
+        message += ` Skipped ${skippedDuplicates} duplicates.`;
+      }
+      if (validationErrors.length > 0) {
+        message += ` Skipped ${validationErrors.length} invalid rows.`;
       }
       
-      // Refresh orders after import
-      await fetchOrders();
-      await fetchBatchData();
-    } catch (error) {
-      console.error('Error processing mapped data:', error);
+      // Add details about insertion errors if any
+      if (insertErrors.length > 0) {
+        message += ` Errors: ${insertErrors.slice(0, 2).join('; ')}${insertErrors.length > 2 ? '...' : ''}`;
+      }
+      
+      // Show message
+      if (successCount > 0 && errorCount === 0) {
+        setImportSuccess({
+          count: successCount,
+          message: message
+        });
+        toast.success(message);
+      } else if (successCount > 0 && errorCount > 0) {
+        setError(message);
+        toast.error(message, { duration: 10000 });
+      } else if (successCount === 0 && errorCount > 0) {
+        setError(`Import failed. ${message}`);
+        toast.error(`Import failed. ${message}`, { duration: 10000 });
+      } else if (successCount === 0 && errorCount === 0) {
+        // This case might happen if all were duplicates initially
+        toast.success(message); // Already handled the 'no valid orders' case earlier
+      }
+      
+      // Refresh the orders list if any succeeded
+      if (successCount > 0) {
+        const { data: updatedOrders, error: fetchError } = await supabase
+          .from('orders')
+          .select('*')
+          .order('order_date', { ascending: false });
+          
+        if (fetchError) throw fetchError;
+        
+        setOrders(updatedOrders || []);
+      }      
+      
+    } catch (err: any) {
+      console.error('Error processing orders:', err);
+      setError(`Failed to import orders: ${err.message || JSON.stringify(err)}`);
+      toast.error('Failed to import orders. Please try again.');
+    } finally {
       setIsImporting(false);
-      toast.error('Error processing data. Please try again.');
+      setImportProcessedItems(0); // Reset progress on finish/error
+      setImportTotalItems(0);
     }
   };
 
