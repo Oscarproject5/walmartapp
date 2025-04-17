@@ -1,27 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
 import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
 
-// Loading component for the Suspense fallback
-function InventoryLoading() {
-  return (
-    <div className="container mx-auto px-4 py-6">
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading inventory data...</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InventoryContent() {
+export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editItemId, setEditItemId] = useState<string | null>(null);
@@ -143,13 +129,5 @@ function InventoryContent() {
         itemId={editItemId}
       />
     </div>
-  );
-}
-
-export default function InventoryPage() {
-  return (
-    <Suspense fallback={<InventoryLoading />}>
-      <InventoryContent />
-    </Suspense>
   );
 } 

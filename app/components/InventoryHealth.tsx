@@ -18,7 +18,6 @@ import {
   LineChart,
   Line
 } from 'recharts';
-import { useRouter } from 'next/navigation';
 
 interface InventoryHealthProps {
   className?: string;
@@ -55,14 +54,6 @@ interface ChartDataItem {
   color?: string;
 }
 
-interface ActionCardProps {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  color: 'blue' | 'amber' | 'purple' | 'green' | 'red';
-  url: string;
-}
-
 // Define the different inventory status categories
 const STATUSES = ['active', 'low_stock', 'out_of_stock'];
 const STATUS_COLORS: Record<string, string> = {
@@ -82,7 +73,6 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
   const [isLoading, setIsLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = createClientComponentClient();
-  const router = useRouter();
 
   // Get the current user's ID
   useEffect(() => {
@@ -468,8 +458,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
 }
 
 // Helper components and functions
-function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
-  const router = useRouter();
+function ActionCard({ title, description, icon, color, url }) {
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -517,11 +506,11 @@ function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
 }
 
 // Calculate health score based on inventory status
-function calculateHealthScore(statusData: ChartDataItem[]): number {
+function calculateHealthScore(statusData) {
   if (!statusData || statusData.length === 0) return 0;
   
   // Get the counts
-  const counts: Record<string, number> = {
+  const counts = {
     'Active': 0,
     'Low Stock': 0,
     'Out Of Stock': 0
@@ -542,7 +531,7 @@ function calculateHealthScore(statusData: ChartDataItem[]): number {
 }
 
 // Get health status text based on score
-function getHealthStatus(score: number): string {
+function getHealthStatus(score) {
   if (score >= 90) return 'Excellent';
   if (score >= 75) return 'Good';
   if (score >= 60) return 'Average';
@@ -551,7 +540,7 @@ function getHealthStatus(score: number): string {
 }
 
 // Get color based on health score
-function getHealthScoreColor(score: number): string {
+function getHealthScoreColor(score) {
   if (score >= 90) return '#10B981'; // green
   if (score >= 75) return '#34D399'; // green-light
   if (score >= 60) return '#F59E0B'; // amber

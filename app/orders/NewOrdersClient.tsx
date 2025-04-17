@@ -186,9 +186,6 @@ export default function NewOrdersClient() {
   
   // Fetch shipping settings when component loads
   useEffect(() => {
-    let fallbackInterval: NodeJS.Timeout | null = null;
-    let realtimeEnabled = true; // Track if real-time should be used
-    
     const fetchShippingSettings = async () => {
       try {
         const { data, error } = await supabase
@@ -216,141 +213,30 @@ export default function NewOrdersClient() {
     
     fetchShippingSettings();
     
-    // Function to disable real-time completely and rely on polling
-    const disableRealtime = () => {
-      if (realtimeEnabled) {
-        console.log('Disabling real-time subscriptions due to persistent errors');
-        realtimeEnabled = false;
+    // Subscribe to changes in app_settings to get real-time updates
+    const settingsSubscription = supabase
+      .channel('app_settings_changes')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'app_settings' 
+      }, (payload) => {
+        console.log('App settings changed:', payload);
         
-        // Set up fallback polling if not already set
-        if (!fallbackInterval) {
-          console.log('Setting up fallback polling for app settings');
-          fallbackInterval = setInterval(fetchShippingSettings, 30000);
-        }
-      }
-    };
-    
-    // Create a real-time subscription with error handling
-    let retryCount = 0;
-    const MAX_RETRIES = 3;
-    let totalErrors = 0;
-    const MAX_TOTAL_ERRORS = 5;
-    
-    // Function to create and manage the subscription
-    const setupRealtimeSubscription = () => {
-      // Skip if real-time has been disabled
-      if (!realtimeEnabled) return null;
-      
-      try {
-        const settingsSubscription = supabase
-          .channel('app_settings_changes')
-          .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'app_settings' 
-          }, (payload) => {
-            console.log('App settings changed:', payload);
-            
-            // Update shipping settings when changes occur
-            if (payload.new) {
-              const newSettings = payload.new as any;
-              setShippingSettings({
-                shipping_base_cost: newSettings.shipping_base_cost || 1.75,
-                label_cost: newSettings.label_cost || 2.25
-              });
-            }
-          })
-          .subscribe((status) => {
-            // Handle subscription status
-            if (status === 'SUBSCRIBED') {
-              // Reset retry count on successful connection
-              retryCount = 0;
-              
-              // Clear fallback polling if real-time is working
-              if (fallbackInterval) {
-                clearInterval(fallbackInterval);
-                fallbackInterval = null;
-              }
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Supabase real-time subscription error');
-              totalErrors++;
-              
-              // Check if we've had too many total errors and should disable real-time
-              if (totalErrors >= MAX_TOTAL_ERRORS) {
-                disableRealtime();
-                return;
-              }
-              
-              // Attempt to retry the connection if under max retries
-              if (retryCount < MAX_RETRIES) {
-                retryCount++;
-                console.log(`Retrying subscription (${retryCount}/${MAX_RETRIES})...`);
-                
-                // Wait a bit before retrying
-                setTimeout(() => {
-                  settingsSubscription.unsubscribe();
-                  setupRealtimeSubscription();
-                }, 2000);
-              } else {
-                console.error('Max retries reached for real-time subscription');
-                
-                // If all retries fail, set up a fallback polling mechanism
-                if (!fallbackInterval) {
-                  console.log('Setting up fallback polling for app settings');
-                  fallbackInterval = setInterval(fetchShippingSettings, 30000); // Poll every 30 seconds
-                }
-              }
-            } else if (status === 'TIMED_OUT') {
-              console.error('Supabase real-time subscription timed out');
-              totalErrors++;
-              
-              // Check if we've had too many total errors and should disable real-time
-              if (totalErrors >= MAX_TOTAL_ERRORS) {
-                disableRealtime();
-                return;
-              }
-              
-              // Set up fallback polling on timeout as well
-              if (!fallbackInterval) {
-                console.log('Setting up fallback polling for app settings');
-                fallbackInterval = setInterval(fetchShippingSettings, 30000);
-              }
-            }
+        // Update shipping settings when changes occur
+        if (payload.new) {
+          const newSettings = payload.new as any;
+          setShippingSettings({
+            shipping_base_cost: newSettings.shipping_base_cost || 1.75,
+            label_cost: newSettings.label_cost || 2.25
           });
-          
-        // Return the subscription for cleanup
-        return settingsSubscription;
-      } catch (err) {
-        console.error('Error setting up real-time subscription:', err);
-        totalErrors++;
-        
-        // Check if we've had too many errors and should disable real-time
-        if (totalErrors >= MAX_TOTAL_ERRORS) {
-          disableRealtime();
-        } else {
-          // Set up fallback polling if subscription setup fails
-          if (!fallbackInterval) {
-            console.log('Setting up fallback polling for app settings');
-            fallbackInterval = setInterval(fetchShippingSettings, 30000);
-          }
         }
-        
-        return null;
-      }
-    };
-    
-    // Setup the initial subscription
-    const settingsSubscription = setupRealtimeSubscription();
+      })
+      .subscribe();
       
-    // Cleanup subscription and interval on component unmount
+    // Cleanup subscription on component unmount
     return () => {
-      if (settingsSubscription) {
-        settingsSubscription.unsubscribe();
-      }
-      
-      if (fallbackInterval) {
-        clearInterval(fallbackInterval);
-      }
+      settingsSubscription.unsubscribe();
     };
   }, [supabase]);
 
@@ -772,7 +658,6 @@ export default function NewOrdersClient() {
       let successCount = 0;
       let errorCount = 0;
       let insertErrors: string[] = [];
-      let updateCount = 0;
       
       // Create a map to aggregate quantities by SKU for updating inventory
       const skuQuantityMap = new Map();
@@ -780,45 +665,18 @@ export default function NewOrdersClient() {
       // Insert rows one by one for better error isolation
       for (const [index, rowToInsert] of rowsToInsert.entries()) {
         try {
-          console.log(`Attempting to insert/update row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
-          
-          // First check if this order already exists
-          const { data: existingOrder, error: checkError } = await supabase
+          console.log(`Attempting to insert row ${index + 1}/${rowsToInsert.length}:`, JSON.stringify(rowToInsert)); // Log row before insert
+          const { error: insertError } = await supabase
             .from('orders')
-            .select('order_id')
-            .eq('order_id', rowToInsert.order_id)
-            .maybeSingle();
-          
-          let operationResult;
-          
-          if (existingOrder) {
-            // Order exists - update it
-            operationResult = await supabase
-              .from('orders')
-              .update(rowToInsert)
-              .eq('order_id', rowToInsert.order_id);
+            .insert([rowToInsert]);
             
-            if (!operationResult.error) {
-              updateCount++;
-              successCount++;
-            }
-          } else {
-            // Order doesn't exist - insert it
-            operationResult = await supabase
-              .from('orders')
-              .insert([rowToInsert]);
-              
-            if (!operationResult.error) {
-              successCount++;
-            }
-          }
-            
-          if (operationResult.error) {
-            console.error(`Error processing row (Order ID: ${rowToInsert.order_id}):`, operationResult.error); 
-            console.error(`Full Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(operationResult.error, null, 2));
+          if (insertError) {
+            console.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
+            console.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
             errorCount++;
-            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${operationResult.error.message || 'Unknown error'}`);
+            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
           } else {
+            successCount++;
             // Aggregate quantities by SKU for inventory update
             if (rowToInsert.sku) {
               const currentQty = skuQuantityMap.get(rowToInsert.sku) || 0;
@@ -826,8 +684,8 @@ export default function NewOrdersClient() {
             }
           }
         } catch (err: any) {
-          console.error(`Exception processing row (Order ID: ${rowToInsert.order_id}):`, err);
-          console.error(`Full Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2));
+          console.error(`Exception inserting row (Order ID: ${rowToInsert.order_id}):`, err);
+          console.error(`Full Insert Exception Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(err, null, 2)); // Log full exception object
           errorCount++;
           insertErrors.push(`Order ID ${rowToInsert.order_id}: ${err.message || 'Unknown exception'}`);
         }
@@ -876,7 +734,7 @@ export default function NewOrdersClient() {
       }
       
       // Prepare message based on results
-      let message = `Import finished. Successful: ${successCount} (${updateCount} updated, ${successCount - updateCount} new), Failed: ${errorCount}.`;
+      let message = `Import finished. Successful: ${successCount}, Failed: ${errorCount}.`;
       if (skippedDuplicates > 0) {
         message += ` Skipped ${skippedDuplicates} duplicates.`;
       }

@@ -1,5 +1,4 @@
 import { Database } from '../lib/supabase';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 type Product = Database['public']['Tables']['products']['Row'];
 type Sale = Database['public']['Tables']['sales']['Row'];
@@ -48,16 +47,6 @@ export class AIService {
     }
   }
 
-  // Method to get the current user ID
-  private async getCurrentUserId(): Promise<string> {
-    const supabase = createClientComponentClient();
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
-      throw new Error('No authenticated user found');
-    }
-    return data.user.id;
-  }
-
   async getDynamicPriceRecommendation(
     product: Product,
     currentPrice: number,
@@ -80,7 +69,6 @@ export class AIService {
     `;
 
     const response = await this.callOpenRouter(prompt);
-    const userId = await this.getCurrentUserId();
     
     // Parse AI response and format recommendation
     return {
@@ -98,7 +86,6 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
-      user_id: userId,
     };
   }
 
@@ -123,7 +110,6 @@ export class AIService {
     `;
 
     const response = await this.callOpenRouter(prompt);
-    const userId = await this.getCurrentUserId();
     
     // Parse AI response and format recommendations
     // This is a placeholder - you would need to parse the actual AI response
@@ -142,7 +128,6 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
-      user_id: userId,
     }];
   }
 
@@ -165,7 +150,6 @@ export class AIService {
     `;
 
     const response = await this.callOpenRouter(prompt);
-    const userId = await this.getCurrentUserId();
     
     return {
       id: '',
@@ -182,7 +166,6 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
-      user_id: userId,
     };
   }
 
@@ -210,7 +193,6 @@ export class AIService {
     `;
 
     const response = await this.callOpenRouter(prompt);
-    const userId = await this.getCurrentUserId();
     
     return {
       id: '',
@@ -227,7 +209,6 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
-      user_id: userId,
     };
   }
 } 
