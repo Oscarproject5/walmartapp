@@ -18,6 +18,7 @@ import {
   LineChart,
   Line
 } from 'recharts';
+import { AlertCircle, Activity, TrendingUp, XCircle } from 'lucide-react';
 
 interface InventoryHealthProps {
   className?: string;
@@ -62,6 +63,15 @@ const STATUS_COLORS: Record<string, string> = {
   out_of_stock: '#EF4444', // red
   total: '#3B82F6', // blue
 };
+
+// Action Card component
+interface ActionCardProps {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  color: 'blue' | 'amber' | 'purple' | 'green' | 'red';
+  url: string;
+}
 
 export default function InventoryHealth({ className = '', refresh = 0 }: InventoryHealthProps) {
   const [inventoryData, setInventoryData] = useState<ProductData[]>([]);
@@ -431,7 +441,7 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
           <ActionCard 
             title="Restock Low Items" 
             description="Review and restock the items that are running low or out of stock."
-            icon="refresh"
+            icon={<AlertCircle className="h-5 w-5 text-amber-500" />}
             color="amber"
             url="/inventory/restock"
           />
@@ -439,16 +449,16 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
           <ActionCard 
             title="Optimize Inventory" 
             description="Analyze inventory turnover and adjust stock levels to improve efficiency."
-            icon="chart"
-            color="blue"
+            icon={<Activity className="h-5 w-5 text-purple-500" />}
+            color="purple"
             url="/inventory/optimize"
           />
           
           <ActionCard 
             title="Supplier Analysis" 
             description="Review supplier performance and diversify sources if needed."
-            icon="users"
-            color="purple"
+            icon={<TrendingUp className="h-5 w-5 text-green-500" />}
+            color="green"
             url="/inventory/suppliers"
           />
         </div>
@@ -458,38 +468,23 @@ export default function InventoryHealth({ className = '', refresh = 0 }: Invento
 }
 
 // Helper components and functions
-function ActionCard({ title, description, icon, color, url }) {
-  const colorClasses = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    red: 'bg-red-50 text-red-700 border-red-200'
+function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
+  const colorClasses: Record<ActionCardProps['color'], string> = {
+    blue: 'border-blue-500',
+    amber: 'border-amber-500',
+    purple: 'border-purple-500',
+    green: 'border-green-500',
+    red: 'border-red-500',
   };
   
   const renderIcon = () => {
-    switch (icon) {
-      case 'refresh':
-        return (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        );
-      case 'chart':
-        return (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        );
-      case 'users':
-        return (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
-        );
-      default:
-        return null;
-    }
+    if (color === 'amber')
+      return <AlertCircle className="h-5 w-5 text-amber-500" />;
+    if (color === 'purple')
+      return <Activity className="h-5 w-5 text-purple-500" />;
+    if (color === 'green') return <TrendingUp className="h-5 w-5 text-green-500" />;
+    if (color === 'red') return <XCircle className="h-5 w-5 text-red-500" />;
+    return null; // Default case
   };
   
   return (
@@ -506,32 +501,35 @@ function ActionCard({ title, description, icon, color, url }) {
 }
 
 // Calculate health score based on inventory status
-function calculateHealthScore(statusData) {
+function calculateHealthScore(statusData: ChartDataItem[]) {
   if (!statusData || statusData.length === 0) return 0;
-  
-  // Get the counts
-  const counts = {
+
+  // Initialize counts with expected keys, ensuring type compatibility
+  const counts: { [key: string]: number } = {
     'Active': 0,
     'Low Stock': 0,
-    'Out Of Stock': 0
+    'Out Of Stock': 0,
   };
-  
-  statusData.forEach(item => {
+
+  statusData.forEach((item) => {
+    // Use the name from the item to update counts
     counts[item.name] = item.value;
   });
-  
+
+  // Access counts using string keys
   const total = counts['Active'] + counts['Low Stock'] + counts['Out Of Stock'];
   if (total === 0) return 0;
-  
+
   // Formula: (100% * active + 40% * low_stock) / total
   // Out of stock items contribute 0 to the score
-  const score = ((counts['Active'] * 1.0) + (counts['Low Stock'] * 0.4)) / total * 100;
-  
+  const score =
+    ((counts['Active'] * 1.0) + (counts['Low Stock'] * 0.4)) / total * 100;
+
   return Math.round(score);
 }
 
 // Get health status text based on score
-function getHealthStatus(score) {
+function getHealthStatus(score: number): string {
   if (score >= 90) return 'Excellent';
   if (score >= 75) return 'Good';
   if (score >= 60) return 'Average';
@@ -540,7 +538,7 @@ function getHealthStatus(score) {
 }
 
 // Get color based on health score
-function getHealthScoreColor(score) {
+function getHealthScoreColor(score: number): string {
   if (score >= 90) return '#10B981'; // green
   if (score >= 75) return '#34D399'; // green-light
   if (score >= 60) return '#F59E0B'; // amber
