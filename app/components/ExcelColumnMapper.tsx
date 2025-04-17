@@ -318,7 +318,7 @@ export default function ExcelColumnMapper({ onMappedDataReady, onClose, required
               }
             } else if (typeof value === 'string') {
               // Try to parse date strings
-              const datePattern = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/;
+              const datePattern = /^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/;
               if (datePattern.test(value)) {
                 const parsedDate = new Date(value);
                 if (!isNaN(parsedDate.getTime())) {

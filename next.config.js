@@ -14,7 +14,7 @@ const nextConfig = {
     ],
   },
   reactStrictMode: true,
-  swcMinify: true,
+  // swcMinify is now the default in Next.js 15 and the option is deprecated
   experimental: {
     turbo: {},
   },

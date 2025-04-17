@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { InventoryClient } from '../components/dynamic/InventoryClient';
 import InventoryDetailedOverview from '../components/InventoryDetailedOverview';
 import InventoryHealth from '../components/InventoryHealth';
 import EditInventoryItemModal from '../components/EditInventoryItemModal';
 
-export default function InventoryPage() {
+// Wrapper component to handle the search params
+function InventoryPageContent() {
   const [activeTab, setActiveTab] = useState<'table' | 'health'>('table');
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [editItemId, setEditItemId] = useState<string | null>(null);
@@ -129,5 +130,27 @@ export default function InventoryPage() {
         itemId={editItemId}
       />
     </div>
+  );
+}
+
+// Loading fallback
+function InventoryPageLoading() {
+  return (
+    <div className="container mx-auto px-4 py-6">
+      <div className="flex justify-center">
+        <div className="animate-pulse bg-slate-200 h-8 w-52 rounded mb-4"></div>
+      </div>
+      <div className="animate-pulse bg-slate-200 h-40 rounded mb-6"></div>
+      <div className="animate-pulse bg-slate-200 h-96 rounded"></div>
+    </div>
+  );
+}
+
+// Main export that uses Suspense
+export default function InventoryPage() {
+  return (
+    <Suspense fallback={<InventoryPageLoading />}>
+      <InventoryPageContent />
+    </Suspense>
   );
 } 

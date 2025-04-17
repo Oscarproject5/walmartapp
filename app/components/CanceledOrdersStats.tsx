@@ -113,6 +113,7 @@ export default function CanceledOrdersStats() {
           openrouter_api_key: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          user_id: '',
         });
       }
     } catch (err) {
@@ -129,6 +130,7 @@ export default function CanceledOrdersStats() {
         openrouter_api_key: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        user_id: '',
       });
     }
   };

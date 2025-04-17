@@ -86,6 +86,7 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
+      user_id: product.user_id || '',
     };
   }
 
@@ -128,6 +129,7 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
+      user_id: products.length > 0 ? (products[0].user_id || '') : '',
     }];
   }
 
@@ -166,6 +168,7 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
+      user_id: product.user_id || '',
     };
   }
 
@@ -209,6 +212,7 @@ export class AIService {
       status: 'pending',
       created_at: new Date().toISOString(),
       implemented_at: null,
+      user_id: scenario.product.user_id || '',
     };
   }
 } 
