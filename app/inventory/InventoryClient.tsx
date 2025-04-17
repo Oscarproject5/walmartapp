@@ -407,9 +407,13 @@ export default function InventoryClient() {
                   className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                   required
                 >
+                  <option value="other">Other</option>
                   <option value="amazon">Amazon</option>
                   <option value="walmart">Walmart</option>
-                  <option value="sams_club">Sam's Club</option>
+                  <option value="sams_club">Sam&apos;s Club</option>
+                  <option value="target">Target</option>
+                  <option value="costco">Costco</option>
+                  <option value="local_supplier">Local Supplier</option>
                 </select>
               </div>
               

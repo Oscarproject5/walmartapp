@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatCurrency } from '../utils/calculations';
 import Link from 'next/link';
@@ -35,7 +35,7 @@ export default function ProductPerformanceClient() {
       }
     };
     getUserId();
-  }, []);
+  }, [supabase.auth]);
   
   // Independent sort states for each table
   const [mainSortField, setMainSortField] = useState<keyof ProductPerformance>('totalQuantity');
@@ -50,14 +50,7 @@ export default function ProductPerformanceClient() {
   const [selectedProduct, setSelectedProduct] = useState<ProductPerformance | null>(null);
   const [showInsights, setShowInsights] = useState(false);
 
-  useEffect(() => {
-    if (userId) {
-      console.log('ProductPerformanceClient: User ID available, fetching data...');
-      fetchProductPerformance();
-    }
-  }, [userId]);
-
-  const fetchProductPerformance = async () => {
+  const fetchProductPerformance = useCallback(async () => {
     try {
       setIsLoading(true);
       console.log('ProductPerformanceClient: Fetching order data...');
@@ -147,7 +140,14 @@ export default function ProductPerformanceClient() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [supabase, userId]);
+
+  useEffect(() => {
+    if (userId) {
+      console.log('ProductPerformanceClient: User ID available, fetching data...');
+      fetchProductPerformance();
+    }
+  }, [userId, fetchProductPerformance]);
 
   // Create sorting functions for each table
   const handleMainSort = (field: keyof ProductPerformance) => {
@@ -226,14 +226,6 @@ export default function ProductPerformanceClient() {
 
   // Apply sorting for each table
   const sortedAllProducts = sortProducts(products, mainSortField, mainSortDirection);
-  
-  // For best performers, always use the direction that represents "better" performance
-  const bestDirection = bestSortDirection;
-  const sortedBestProducts = sortProducts(products, bestSortField, bestDirection);
-  
-  // For worst performers, always use the opposite direction that represents "worse" performance
-  const worstDirection = worstSortDirection;
-  const sortedWorstProducts = sortProducts(products, worstSortField, worstDirection);
   
   // Get top 5 best performers (always the best regardless of sort direction)
   const bestPerformers = [...products]

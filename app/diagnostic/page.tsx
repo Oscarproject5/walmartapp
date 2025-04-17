@@ -39,7 +39,7 @@ export default function DiagnosticPage() {
                 <p className="font-medium">Solutions:</p>
                 <ul className="list-disc list-inside text-xs space-y-1 mt-1">
                   <li>Check Row Level Security policies in Supabase</li>
-                  <li>Ensure you're properly authenticated</li>
+                  <li>Ensure you&apos;re properly authenticated</li>
                   <li>Contact your database administrator</li>
                 </ul>
               </div>

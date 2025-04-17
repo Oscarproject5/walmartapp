@@ -28,7 +28,7 @@ export default function ResetPassword() {
       if (hashFragment) {
         const tokens = hashFragment.substring(1).split('&').reduce((acc, curr) => {
           const [key, value] = curr.split('=');
-          acc[key] = value;
+          acc[key as string] = value;
           return acc;
         }, {} as Record<string, string>);
         
@@ -39,7 +39,7 @@ export default function ResetPassword() {
     }
   }, [user, router]);
 
-  const handleResetPassword = async (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
@@ -73,8 +73,12 @@ export default function ResetPassword() {
       setTimeout(() => {
         router.push('/login');
       }, 2000);
-    } catch (error: any) {
-      setError(error.message || 'Failed to update password');
+    } catch (error) {
+      if (error instanceof Error) {
+        setError(error.message || 'Failed to update password');
+      } else {
+        setError('An unknown error occurred');
+      }
     } finally {
       setLoading(false);
     }

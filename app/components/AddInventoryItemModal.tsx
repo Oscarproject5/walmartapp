@@ -327,9 +327,13 @@ export default function AddInventoryItemModal({ isOpen, onClose, onItemAdded }: 
                   className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                   required
                 >
-                  <option value="walmart">Walmart</option>
+                  <option value="other">Other</option>
                   <option value="amazon">Amazon</option>
-                  <option value="sams_club">Sam's Club</option>
+                  <option value="walmart">Walmart</option>
+                  <option value="sams_club">Sam&apos;s Club</option>
+                  <option value="target">Target</option>
+                  <option value="costco">Costco</option>
+                  <option value="local_supplier">Local Supplier</option>
                 </select>
               </div>
               
