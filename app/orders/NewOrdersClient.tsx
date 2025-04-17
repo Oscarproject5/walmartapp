@@ -8,6 +8,7 @@ import { formatCurrency } from '../lib/utils';
 import ExcelColumnMapper from '../components/ExcelColumnMapper';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
+import { useDropzone } from 'react-dropzone';
 
 // Define interface for shipping settings
 interface ShippingSettings {
@@ -541,13 +542,19 @@ export default function NewOrdersClient() {
       // 1. Fetch existing order IDs again to be absolutely sure about duplicates
       const { data: existingOrdersData, error: orderFetchError } = await supabase
         .from('orders')
-        .select('order_id');
+        .select('order_id, sku');
         
       if (orderFetchError) {
         console.error("Pre-insert Fetch Error: Could not get existing order IDs:", orderFetchError);
         // Decide if we should proceed or throw error
       }
-      const existingOrderIdSet = new Set(existingOrdersData?.map(o => o.order_id) || []);
+
+      // Create a Set of composite keys (order_id + sku) for efficient duplicate checking
+      const existingOrderSkuSet = new Set();
+      existingOrdersData?.forEach(order => {
+        const compositeKey = `${order.order_id}:${order.sku}`;
+        existingOrderSkuSet.add(compositeKey);
+      });
       
       // 2. Fetch existing product SKUs and related data (cost, name) again
       const { data: existingProductsData, error: productFetchError } = await supabase
@@ -575,8 +582,11 @@ export default function NewOrdersClient() {
       mappedData.forEach((originalRow, index) => {
         const rowIndex = index + 1; // 1-based index for user messages
         
-        // Check for duplicate order_id
-        if (existingOrderIdSet.has(originalRow.order_id)) {
+        // Create a composite key using order_id and sku
+        const compositeKey = `${originalRow.order_id}:${originalRow.sku}`;
+        
+        // Check for duplicate (order_id, sku) combination
+        if (existingOrderSkuSet.has(compositeKey)) {
           localSkippedDuplicates++;
           return; // Skip duplicate
         }
@@ -674,7 +684,13 @@ export default function NewOrdersClient() {
             console.error(`Error inserting row (Order ID: ${rowToInsert.order_id}):`, insertError); 
             console.error(`Full Insert Error Object (Order ID: ${rowToInsert.order_id}):`, JSON.stringify(insertError, null, 2)); // Log full error object
             errorCount++;
-            insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
+            
+            // Provide more helpful error message for duplicate key violations
+            if (insertError.code === '23505' && insertError.message && insertError.message.includes('orders_pkey')) {
+              insertErrors.push(`Order ID ${rowToInsert.order_id} with SKU ${rowToInsert.sku || 'unknown'}: This combination already exists in the database.`);
+            } else {
+              insertErrors.push(`Order ID ${rowToInsert.order_id}: ${insertError.message || 'Unknown insert error'}`);
+            }
           } else {
             successCount++;
             // Aggregate quantities by SKU for inventory update
@@ -1014,6 +1030,15 @@ export default function NewOrdersClient() {
       setSelectedBatchId(null);
     }
   };
+
+  const { getRootProps, getInputProps } = useDropzone({
+    onDrop: (acceptedFiles) => {
+      if (acceptedFiles.length > 0) {
+        // Handle file drop logic here
+      }
+    },
+    // Existing dropzone configuration
+  });
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -1539,17 +1564,29 @@ export default function NewOrdersClient() {
       {/* Excel Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Upload Orders from Excel</h3>
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
+          <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+              <Upload className="h-5 w-5 text-blue-500 mr-2" />
+              Import Orders
+            </h3>
+
+            {/* Add the information box here, before the file upload component */}
+            <div className="rounded-lg bg-blue-50 p-4 text-sm text-blue-800 mb-4 flex items-start">
+              <div className="flex-shrink-0 mr-2 mt-0.5">
+                <svg className="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium mb-1">Import Guidelines</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Each combination of Order ID and SKU must be unique in the database</li>
+                  <li>Duplicate Order ID + SKU combinations will be skipped during import</li>
+                  <li>Different SKUs can share the same Order ID (for multi-item orders)</li>
+                </ul>
+              </div>
             </div>
-            
+
             <ExcelColumnMapper
               onMappedDataReady={handleMappedDataReady}
               onClose={() => setShowUploadModal(false)}
