@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-// Configure OpenAI client for OpenRouter
-const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1', // Set OpenRouter base URL
-  apiKey: process.env.OPENROUTER_API_KEY, // Use OpenRouter API key
-  defaultHeaders: { // Optional: OpenRouter might suggest specific headers
-    'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000', // Use env var or default
-    'X-Title': process.env.APP_NAME || 'WalmartApp', // Use env var or default
-  },
-});
+// Configure OpenAI client only if API key is available
+// This prevents build-time errors when environment variables are not available
+let openai: OpenAI | null = null;
+
+// Initialize OpenAI only when the API is actually called (not during build)
+function getOpenAIClient() {
+  if (!openai) {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('OPENROUTER_API_KEY environment variable is missing');
+    }
+    
+    openai = new OpenAI({
+      baseURL: 'https://openrouter.ai/api/v1', // Set OpenRouter base URL
+      apiKey, // Use OpenRouter API key
+      defaultHeaders: { // Optional: OpenRouter might suggest specific headers
+        'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000', // Use env var or default
+        'X-Title': process.env.APP_NAME || 'WalmartApp', // Use env var or default
+      },
+    });
+  }
+  
+  return openai;
+}
 
 // Interface for product performance data
 interface ProductPerformanceData {
@@ -104,8 +120,11 @@ Create a comprehensive action plan with concrete steps for EACH of these specifi
     // Use a strong LLM model for detailed analysis
     const modelToUse = 'deepseek/deepseek-chat-v3-0324'; 
 
+    // Get the OpenAI client (will throw if API key is missing)
+    const openaiClient = getOpenAIClient();
+
     console.log(`[Worst Product Plan API] Sending request to OpenRouter (${modelToUse})...`);
-    const completion = await openai.chat.completions.create({
+    const completion = await openaiClient.chat.completions.create({
       model: modelToUse,
       messages: [
         { role: 'system', content: systemPrompt },
