@@ -775,18 +775,18 @@ export default function NewOrdersClient() {
           // Skip refresh if user ID is missing
         } else {
           console.log(`Refreshing orders for user: ${userId} after import...`);
-          const { data: updatedOrders, error: fetchError } = await supabase
-            .from('orders')
-            .select('*')
+        const { data: updatedOrders, error: fetchError } = await supabase
+          .from('orders')
+          .select('*')
             .eq('user_id', userId) // Added user_id filter here
-            .order('order_date', { ascending: false });
-
+          .order('order_date', { ascending: false });
+          
           if (fetchError) {
             console.error("Error re-fetching orders after import:", fetchError);
             setError(`Failed to refresh orders after import: ${fetchError.message}`);
           } else {
             console.log("Re-fetched orders after import:", updatedOrders);
-            setOrders(updatedOrders || []);
+        setOrders(updatedOrders || []);
             console.log("Orders state updated after import fetch.");
           }
         }

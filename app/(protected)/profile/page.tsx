@@ -7,6 +7,7 @@ import { useAuth } from '../../context/auth-context';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import { User } from '@supabase/supabase-js';
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
 
 // Extended user type for profile data
 interface ExtendedUser extends User {
@@ -28,7 +29,7 @@ interface ExtendedUser extends User {
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
   const supabase = createClientComponentClient();
   const [loading, setLoading] = useState(true);
@@ -36,6 +37,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [activeTab, setActiveTab] = useState('personal');
   const [profileData, setProfileData] = useState<ExtendedUser | null>(null);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
 
   // Fetch additional profile data from the database
   useEffect(() => {
@@ -671,6 +673,7 @@ export default function ProfilePage() {
                 <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
                   <button 
                     type="button"
+                    onClick={() => setIsChangePasswordModalOpen(true)}
                     className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                   >
                     Change password
@@ -681,6 +684,12 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal 
+        isOpen={isChangePasswordModalOpen}
+        onClose={() => setIsChangePasswordModalOpen(false)}
+      />
     </div>
   );
 } 

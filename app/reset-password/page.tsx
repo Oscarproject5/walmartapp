@@ -75,7 +75,7 @@ export default function ResetPassword() {
       }, 2000);
     } catch (error) {
       if (error instanceof Error) {
-        setError(error.message || 'Failed to update password');
+      setError(error.message || 'Failed to update password');
       } else {
         setError('An unknown error occurred');
       }

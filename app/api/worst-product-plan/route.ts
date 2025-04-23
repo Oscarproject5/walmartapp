@@ -15,13 +15,13 @@ function getOpenAIClient() {
     }
     
     openai = new OpenAI({
-      baseURL: 'https://openrouter.ai/api/v1', // Set OpenRouter base URL
+  baseURL: 'https://openrouter.ai/api/v1', // Set OpenRouter base URL
       apiKey, // Use OpenRouter API key
-      defaultHeaders: { // Optional: OpenRouter might suggest specific headers
-        'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000', // Use env var or default
-        'X-Title': process.env.APP_NAME || 'WalmartApp', // Use env var or default
-      },
-    });
+  defaultHeaders: { // Optional: OpenRouter might suggest specific headers
+    'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000', // Use env var or default
+    'X-Title': process.env.APP_NAME || 'WalmartApp', // Use env var or default
+  },
+});
   }
   
   return openai;

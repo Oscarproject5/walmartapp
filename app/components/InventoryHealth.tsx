@@ -503,28 +503,28 @@ function ActionCard({ title, description, icon, color, url }: ActionCardProps) {
 // Calculate health score based on inventory status
 function calculateHealthScore(statusData: ChartDataItem[]) {
   if (!statusData || statusData.length === 0) return 0;
-
+  
   // Initialize counts with expected keys, ensuring type compatibility
   const counts: { [key: string]: number } = {
     'Active': 0,
     'Low Stock': 0,
     'Out Of Stock': 0,
   };
-
+  
   statusData.forEach((item) => {
     // Use the name from the item to update counts
     counts[item.name] = item.value;
   });
-
+  
   // Access counts using string keys
   const total = counts['Active'] + counts['Low Stock'] + counts['Out Of Stock'];
   if (total === 0) return 0;
-
+  
   // Formula: (100% * active + 40% * low_stock) / total
   // Out of stock items contribute 0 to the score
   const score =
     ((counts['Active'] * 1.0) + (counts['Low Stock'] * 0.4)) / total * 100;
-
+  
   return Math.round(score);
 }
 

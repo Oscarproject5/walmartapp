@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { Database } from '../lib/supabase';
+import { useAuth } from '../context/auth-context';
 
 type AppSettings = Database['public']['Tables']['app_settings']['Row'];
 
@@ -13,6 +14,14 @@ export default function SettingsPage() {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = createClientComponentClient();
+  const { changePassword, user } = useAuth();
+  
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     const getUserAndLoadSettings = async () => {
@@ -117,6 +126,73 @@ export default function SettingsPage() {
       setMessage({ type: 'error', text: 'Failed to save settings' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Add password change handler
+  const handlePasswordChange = async () => {
+    // Reset message
+    setPasswordMessage({ type: '', text: '' });
+    
+    // Validate form
+    if (!currentPassword) {
+      setPasswordMessage({ type: 'error', text: 'Please enter your current password' });
+      return;
+    }
+    
+    if (!newPassword) {
+      setPasswordMessage({ type: 'error', text: 'Please enter a new password' });
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      setPasswordMessage({ type: 'error', text: 'Password must be at least 6 characters long' });
+      return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage({ type: 'error', text: 'New passwords do not match' });
+      return;
+    }
+    
+    if (!user || !user.email) {
+      setPasswordMessage({ type: 'error', text: 'User session not found. Please log in again.' });
+      return;
+    }
+    
+    setChangingPassword(true);
+    
+    try {
+      // First verify current password is correct by attempting to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      
+      if (signInError) {
+        throw new Error('Current password is incorrect');
+      }
+      
+      // If sign-in succeeded, change the password
+      const { error } = await changePassword(newPassword);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Clear form fields
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      
+      setPasswordMessage({ type: 'success', text: 'Password changed successfully' });
+    } catch (error: any) {
+      setPasswordMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to change password. Please try again.'
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -283,24 +359,100 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {message.text && (
-              <div className={`p-4 rounded-md ${
-                message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
-              }`}>
-                {message.text}
+            {/* Password Security Section */}
+            <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+              <div className="md:grid md:grid-cols-3 md:gap-6">
+                <div className="md:col-span-1">
+                  <h3 className="text-lg font-medium leading-6 text-gray-900">Password Security</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Change your password to keep your account secure.
+                  </p>
+                </div>
+                <div className="mt-5 md:mt-0 md:col-span-2">
+                  {passwordMessage.text && (
+                    <div className={`mb-4 p-4 rounded-md ${
+                      passwordMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                    }`}>
+                      {passwordMessage.text}
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-6 gap-6">
+                    <div className="col-span-6 sm:col-span-4">
+                      <label htmlFor="current_password" className="block text-sm font-medium text-gray-700">
+                        Current Password
+                      </label>
+                      <input
+                        type="password"
+                        name="current_password"
+                        id="current_password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      />
+                    </div>
+
+                    <div className="col-span-6 sm:col-span-4">
+                      <label htmlFor="new_password" className="block text-sm font-medium text-gray-700">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        name="new_password"
+                        id="new_password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      />
+                    </div>
+
+                    <div className="col-span-6 sm:col-span-4">
+                      <label htmlFor="confirm_password" className="block text-sm font-medium text-gray-700">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        name="confirm_password"
+                        id="confirm_password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      />
+                    </div>
+                    
+                    <div className="col-span-6 sm:col-span-4">
+                      <button
+                        type="button"
+                        onClick={handlePasswordChange}
+                        disabled={changingPassword}
+                        className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                      >
+                        {changingPassword ? 'Changing Password...' : 'Change Password'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
 
             <div className="flex justify-end">
               <button
                 type="submit"
                 disabled={isSaving}
-                className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
               >
                 {isSaving ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
           </form>
+          
+          {message.text && (
+            <div className={`mt-4 p-4 rounded-md ${
+              message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
+              {message.text}
+            </div>
+          )}
         </div>
       </div>
     </div>
