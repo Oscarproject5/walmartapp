@@ -1,0 +1,329 @@
+{
+  "name": "Amazon Purchase Email to Inventory",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute",
+              "minute": 30
+            }
+          ]
+        }
+      },
+      "id": "trigger-node",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "search": "from:auto-confirm@amazon.com OR from:ship-confirm@amazon.com",
+        "limit": 10,
+        "format": "full",
+        "attachments": true
+      },
+      "id": "gmail-node",
+      "name": "Gmail - Fetch Amazon Emails",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an expert at parsing Amazon order confirmation emails. Extract all order and product information in a structured JSON format. For each product found, include: orderNumber, productName, quantity, unitPrice, totalPrice, ASIN (if available), amazonUrl, and any other relevant details."
+            },
+            {
+              "role": "user",
+              "content": "={{ 'Parse this Amazon order email and extract all product information:\\n\\nSubject: ' + $json.subject + '\\n\\nBody:\\n' + ($json.textPlain || $json.textHtml || '') }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "openai-parse-email",
+      "name": "AI Parse Amazon Email",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\n\nfor (const item of $input.all()) {\n  try {\n    // Parse AI response\n    const aiResponse = typeof item.json.message === 'string' \n      ? JSON.parse(item.json.message) \n      : item.json.message;\n    \n    const products = aiResponse.products || [];\n    const orderInfo = aiResponse.orderInfo || {};\n    \n    // Process each product from AI extraction\n    products.forEach(product => {\n      items.push({\n        orderNumber: orderInfo.orderNumber || product.orderNumber,\n        productName: product.productName || product.name,\n        quantityOrdered: product.quantity || 1,\n        unitPrice: product.unitPrice || product.price,\n        totalPrice: product.totalPrice || (product.unitPrice * product.quantity),\n        asin: product.asin || product.ASIN,\n        amazonUrl: product.amazonUrl || (product.asin ? `https://www.amazon.com/dp/${product.asin}` : null),\n        emailDate: orderInfo.orderDate || new Date().toISOString(),\n        emailId: item.json.emailId,\n        rawAiExtraction: product\n      });\n    });\n  } catch (error) {\n    // Fallback to basic extraction if AI fails\n    console.error('AI parsing error:', error);\n    items.push({\n      error: error.message,\n      rawData: item.json\n    });\n  }\n}\n\nreturn items;"
+      },
+      "id": "process-ai-response",
+      "name": "Process AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.amazonUrl }}",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+          ]
+        }
+      },
+      "id": "http-request-node",
+      "name": "Fetch Amazon Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [950, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4-turbo-preview",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an expert at analyzing Amazon product pages. Extract detailed product information including: pack size (how many items per pack/box), product dimensions, weight, category, brand, and any bulk quantity information. Return a structured JSON with fields: packSize (number), packDescription, productTitle, brand, category, dimensions, weight, bulkInfo, and any other relevant details."
+            },
+            {
+              "role": "user",
+              "content": "={{ 'Analyze this Amazon product page HTML and extract pack size and product details. Product: ' + $json.productName + '\\n\\nASIN: ' + $json.asin + '\\n\\nHTML Content (first 5000 chars):\\n' + ($json.data ? $json.data.substring(0, 5000) : 'No HTML available') }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "ai-extract-pack-info",
+      "name": "AI Extract Pack Information",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1150, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\n\nfor (const item of $input.all()) {\n  try {\n    // Parse AI response for pack information\n    const aiResponse = typeof item.json.message === 'string' \n      ? JSON.parse(item.json.message) \n      : item.json.message;\n    \n    const orderData = item.json;\n    \n    // Extract pack size with AI assistance\n    const packSize = aiResponse.packSize || 1;\n    const packDescription = aiResponse.packDescription || 'Single Item';\n    \n    // Calculate inventory with AI-enhanced data\n    const totalItems = orderData.quantityOrdered * packSize;\n    \n    items.push({\n      orderNumber: orderData.orderNumber,\n      productName: aiResponse.productTitle || orderData.productName,\n      brand: aiResponse.brand,\n      category: aiResponse.category,\n      asin: orderData.asin,\n      quantityOrdered: orderData.quantityOrdered,\n      packSize: packSize,\n      packDescription: packDescription,\n      totalItems: totalItems,\n      unitPrice: orderData.unitPrice,\n      totalCost: orderData.totalPrice,\n      dimensions: aiResponse.dimensions,\n      weight: aiResponse.weight,\n      bulkInfo: aiResponse.bulkInfo,\n      purchaseDate: orderData.emailDate,\n      amazonUrl: orderData.amazonUrl,\n      aiInsights: aiResponse,\n      lastUpdated: new Date().toISOString()\n    });\n  } catch (error) {\n    // Fallback if AI fails\n    console.error('AI extraction error:', error);\n    items.push({\n      ...item.json,\n      packSize: 1,\n      packDescription: 'Unable to determine',\n      totalItems: item.json.quantityOrdered,\n      error: error.message\n    });\n  }\n}\n\nreturn items;"
+      },
+      "id": "process-pack-info",
+      "name": "Process Pack Information",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "list",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Inventory"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Order Number": "={{ $json.orderNumber }}",
+            "Product Name": "={{ $json.productName }}",
+            "ASIN": "={{ $json.asin }}",
+            "Quantity Ordered": "={{ $json.quantityOrdered }}",
+            "Brand": "={{ $json.brand }}",
+            "Category": "={{ $json.category }}",
+            "Pack Size": "={{ $json.packSize }}",
+            "Pack Description": "={{ $json.packDescription }}",
+            "Total Items": "={{ $json.totalItems }}",
+            "Unit Price": "={{ $json.unitPrice }}",
+            "Total Cost": "={{ $json.totalCost }}",
+            "Dimensions": "={{ $json.dimensions }}",
+            "Weight": "={{ $json.weight }}",
+            "Purchase Date": "={{ $json.purchaseDate }}",
+            "Amazon URL": "={{ $json.amazonUrl }}",
+            "Last Updated": "={{ $json.lastUpdated }}"
+          }
+        }
+      },
+      "id": "google-sheets-node",
+      "name": "Update Google Sheets Inventory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_INVENTORY_API_ENDPOINT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"orderNumber\": \"{{ $json.orderNumber }}\",\n  \"productName\": \"{{ $json.productName }}\",\n  \"asin\": \"{{ $json.asin }}\",\n  \"brand\": \"{{ $json.brand }}\",\n  \"category\": \"{{ $json.category }}\",\n  \"quantityOrdered\": {{ $json.quantityOrdered }},\n  \"packSize\": {{ $json.packSize }},\n  \"packDescription\": \"{{ $json.packDescription }}\",\n  \"totalItems\": {{ $json.totalItems }},\n  \"unitPrice\": {{ $json.unitPrice }},\n  \"totalCost\": {{ $json.totalCost }},\n  \"dimensions\": \"{{ $json.dimensions }}\",\n  \"weight\": \"{{ $json.weight }}\",\n  \"purchaseDate\": \"{{ $json.purchaseDate }}\",\n  \"amazonUrl\": \"{{ $json.amazonUrl }}\",\n  \"aiInsights\": {{ JSON.stringify($json.aiInsights) }},\n  \"lastUpdated\": \"{{ $json.lastUpdated }}\"\n}",
+        "options": {}
+      },
+      "id": "api-update-node",
+      "name": "Update Inventory API (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 450],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "collection": "inventory",
+        "updateKey": "asin",
+        "updateMode": "upsert",
+        "fields": {
+          "values": {
+            "orderNumber": "={{ $json.orderNumber }}",
+            "productName": "={{ $json.productName }}",
+            "asin": "={{ $json.asin }}",
+            "quantityOrdered": "={{ $json.quantityOrdered }}",
+            "brand": "={{ $json.brand }}",
+            "category": "={{ $json.category }}",
+            "packSize": "={{ $json.packSize }}",
+            "packDescription": "={{ $json.packDescription }}",
+            "totalItems": "={{ $json.totalItems }}",
+            "unitPrice": "={{ $json.unitPrice }}",
+            "totalCost": "={{ $json.totalCost }}",
+            "dimensions": "={{ $json.dimensions }}",
+            "weight": "={{ $json.weight }}",
+            "purchaseDate": "={{ $json.purchaseDate }}",
+            "amazonUrl": "={{ $json.amazonUrl }}",
+            "lastUpdated": "={{ $json.lastUpdated }}"
+          }
+        }
+      },
+      "id": "database-node",
+      "name": "Update Database (Alternative)",
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1,
+      "position": [1250, 600],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Fetch Amazon Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Fetch Amazon Emails": {
+      "main": [
+        [
+          {
+            "node": "AI Parse Amazon Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Parse Amazon Email": {
+      "main": [
+        [
+          {
+            "node": "Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Response": {
+      "main": [
+        [
+          {
+            "node": "Fetch Amazon Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Amazon Page": {
+      "main": [
+        [
+          {
+            "node": "AI Extract Pack Information",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Extract Pack Information": {
+      "main": [
+        [
+          {
+            "node": "Process Pack Information",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Pack Information": {
+      "main": [
+        [
+          {
+            "node": "Update Google Sheets Inventory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Inventory API (Optional)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Database (Alternative)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "amazon-inventory-tracker"
+  }
+}
